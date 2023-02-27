@@ -17,11 +17,12 @@ afr_module_sources(
 afr_module_include_dirs(
     FreeRTOS-Cellular-Interface-Module #${AFR_CURRENT_MODULE}
     PUBLIC "${inc_dir}"
+    PRIVATE "${src_dir}"
 )
 
 afr_module_dependencies(
     ${AFR_CURRENT_MODULE}
-    PUBLIC AFR::FreeRTOS-Cellular-Interface
+    PUBLIC AFR::FreeRTOS-Cellular-Interface AFR::FreeRTOS-Cellular-Interface::mcu_port
 )
 
 #afr_test_module()
