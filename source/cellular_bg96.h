@@ -23,14 +23,16 @@
  * https://github.com/FreeRTOS
  */
 
-#ifndef __CELLULAR_BG96_H__
-#define __CELLULAR_BG96_H__
+#ifndef __CELLULAR_BG770_H__
+#define __CELLULAR_BG770_H__
 
 /* *INDENT-OFF* */
 #ifdef __cplusplus
     extern "C" {
 #endif
 /* *INDENT-ON* */
+
+// TODO (MV): Check these times
 
 /* AT Command timeout for PDN activation */
 #define PDN_ACTIVATION_PACKET_REQ_TIMEOUT_MS       ( 150000UL )
@@ -103,4 +105,4 @@ extern uint32_t CellularUrcTokenWoPrefixTableSize;
 #endif
 /* *INDENT-ON* */
 
-#endif /* ifndef __CELLULAR_BG96_H__ */
+#endif /* ifndef __CELLULAR_BG770_H__ */

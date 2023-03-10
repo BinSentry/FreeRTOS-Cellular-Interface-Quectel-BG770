@@ -30,7 +30,10 @@
 #include <limits.h>
 
 #include "cellular_platform.h"
+/* The config header is always included first. */
+#ifndef CELLULAR_DO_NOT_USE_CUSTOM_CONFIG
 #include "cellular_config.h"
+#endif
 #include "cellular_config_defaults.h"
 
 #include "cellular_types.h"
@@ -92,8 +95,8 @@
 #define CELLULAR_PDN_STATUS_POS_CONTEXT_TYPE     ( 2U )
 #define CELLULAR_PDN_STATUS_POS_IP_ADDRESS       ( 3U )
 
-#define RAT_PRIOIRTY_STRING_LENGTH               ( 2U )
-#define RAT_PRIOIRTY_LIST_LENGTH                 ( 3U )
+#define RAT_PRIORITY_STRING_LENGTH               ( 2U )
+#define RAT_PRIORITY_LIST_LENGTH                 ( 3U )
 
 #define INVALID_PDN_INDEX                        ( 0xFFU )
 
@@ -237,9 +240,8 @@ static bool _parseSignalQuality( char * pQcsqPayload,
 
     if( ( parseStatus == true ) && ( Cellular_ATGetNextTok( &pTmpQcsqPayload, &pToken ) == CELLULAR_AT_SUCCESS ) )
     {
-        if( ( strcmp( pToken, "GSM" ) != 0 ) &&
-            ( strcmp( pToken, "CAT-M1" ) != 0 ) &&
-            ( strcmp( pToken, "CAT-NB1" ) != 0 ) )
+        if( ( strcmp( pToken, "eMTC" ) != 0 ) &&
+            ( strcmp( pToken, "NBIoT" ) != 0 ) )
         {
             parseStatus = false;
         }
@@ -256,7 +258,7 @@ static bool _parseSignalQuality( char * pQcsqPayload,
 
         if( atCoreStatus == CELLULAR_AT_SUCCESS )
         {
-            pSignalInfo->rssi = ( int16_t ) tempValue;
+            pSignalInfo->rssi = ( int16_t ) tempValue;  // NOTE: RSSI value does not need conversion, alread value between -113 and -51
         }
         else
         {
@@ -626,6 +628,7 @@ static bool _parseHplmn( char * pToken,
          * EF-HPLMNwACT can contain a maximum of 10 HPLMN entries in decreasing order of priority.
          * In this implementation, returning the very first HPLMN is the PLMN priority list. */
         /* Refer TS 51.011 Section 10.3.37 for encoding. */
+        /**< NOTE: Null termination of mcc relies on plmn being memset beforehand */
         plmn->mcc[ 0 ] = pToken[ 1 ];
         plmn->mcc[ 1 ] = pToken[ 0 ];
         plmn->mcc[ 2 ] = pToken[ 3 ];
@@ -821,6 +824,10 @@ static CellularSimCardLockState_t _getSimLockState( char * pToken )
         {
             tempState = CELLULAR_SIM_CARD_PUK2;
         }
+        else if( strcmp( pToken, "PH-SIM PIN" ) == 0 )
+        {
+            tempState = CELLULAR_SIM_CARD_PH_SIM_PIN;
+        }
         else if( strcmp( pToken, "PH-NET PIN" ) == 0 )
         {
             tempState = CELLULAR_SIM_CARD_PH_NET_PIN;
@@ -900,11 +907,16 @@ static CellularPktStatus_t _Cellular_RecvFuncGetSimLockStatus( CellularContext_t
 
     if( pktStatus == CELLULAR_PKT_STATUS_OK )
     {
-        atCoreStatus = Cellular_ATRemoveAllWhiteSpaces( pInputStr );
+        atCoreStatus = Cellular_ATRemovePrefix( &pInputStr );
 
         if( atCoreStatus == CELLULAR_AT_SUCCESS )
         {
-            atCoreStatus = Cellular_ATRemovePrefix( &pInputStr );
+            atCoreStatus = Cellular_ATRemoveLeadingWhiteSpaces( &pInputStr );
+        }
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATRemoveTrailingWhiteSpaces( pInputStr );
         }
 
         if( atCoreStatus == CELLULAR_AT_SUCCESS )
@@ -962,6 +974,7 @@ static CellularATError_t parsePdnStatusContextState( char * pToken,
 
     if( atCoreStatus == CELLULAR_AT_SUCCESS )
     {
+        // TODO (MV): Why is this state not checked more closely (according to documentation only 0 = Deactivated and 1 = Activated and all other valuds invalid
         if( ( tempValue >= 0 ) &&
             ( tempValue <= ( int32_t ) UINT8_MAX ) )
         {
@@ -987,6 +1000,7 @@ static CellularATError_t parsePdnStatusContextType( char * pToken,
 
     if( atCoreStatus == CELLULAR_AT_SUCCESS )
     {
+        // TODO (MV): IPV4V6 value (3) not supported, should have better validation here
         if( ( tempValue >= 0 ) && ( tempValue < ( int32_t ) CELLULAR_PDN_CONTEXT_TYPE_MAX ) )
         {
             /* Variable "tempValue" is ensured that it is valid and within
@@ -1032,8 +1046,9 @@ static CellularATError_t getPdnStatusParseToken( char * pToken,
 
         case ( CELLULAR_PDN_STATUS_POS_IP_ADDRESS ):
             LogDebug( ( "IP address: %s", pToken ) );
-            ( void ) memcpy( ( void * ) pPdnStatusBuffers->ipAddress.ipAddress,
-                             ( void * ) pToken, CELLULAR_IP_ADDRESS_MAX_SIZE + 1U );
+            ( void ) strncpy( pPdnStatusBuffers->ipAddress.ipAddress,
+                              pToken, CELLULAR_IP_ADDRESS_MAX_SIZE + 1U );
+            pPdnStatusBuffers->ipAddress.ipAddress[CELLULAR_IP_ADDRESS_MAX_SIZE] = '\0';    // guarantee null terminated
 
             if( pPdnStatusBuffers->pdnContextType == CELLULAR_PDN_CONTEXT_IPV4 )
             {
@@ -1048,7 +1063,6 @@ static CellularATError_t getPdnStatusParseToken( char * pToken,
                 LogError( ( "Unknown pdnContextType %d", pPdnStatusBuffers->pdnContextType ) );
                 atCoreStatus = CELLULAR_AT_ERROR;
             }
-
             break;
 
         default:
@@ -1120,16 +1134,17 @@ static CellularPktStatus_t _Cellular_RecvFuncGetPdnStatus( CellularContext_t * p
     char * pRespLine = NULL;
     CellularPdnStatus_t * pPdnStatusBuffers = ( CellularPdnStatus_t * ) pData;
     uint8_t numStatusBuffers = ( uint8_t ) dataLen;
+    uint8_t numRemainingBuffers = numStatusBuffers;
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
     CellularATError_t atCoreStatus = CELLULAR_AT_SUCCESS;
-    const CellularATCommandLine_t * pCommnadItem = NULL;
+    const CellularATCommandLine_t * pCommandItem = NULL;
 
     if( pContext == NULL )
     {
         LogError( ( "GetPdnStatus: invalid context" ) );
         pktStatus = CELLULAR_PKT_STATUS_FAILURE;
     }
-    else if( ( pAtResp == NULL ) )
+    else if( pAtResp == NULL )
     {
         LogError( ( "GetPdnStatus: Response is invalid" ) );
         pktStatus = CELLULAR_PKT_STATUS_FAILURE;
@@ -1147,13 +1162,11 @@ static CellularPktStatus_t _Cellular_RecvFuncGetPdnStatus( CellularContext_t * p
     }
     else
     {
-        pRespLine = pAtResp->pItm->pLine;
+        pCommandItem = pAtResp->pItm;
 
-        pCommnadItem = pAtResp->pItm;
-
-        while( ( numStatusBuffers != 0U ) && ( pCommnadItem != NULL ) )
+        while( ( numRemainingBuffers != 0U ) && ( pCommandItem != NULL ) )
         {
-            pRespLine = pCommnadItem->pLine;
+            pRespLine = pCommandItem->pLine;
             atCoreStatus = getPdnStatusParseLine( pRespLine, pPdnStatusBuffers );
             pktStatus = _Cellular_TranslateAtCoreStatus( atCoreStatus );
 
@@ -1164,8 +1177,16 @@ static CellularPktStatus_t _Cellular_RecvFuncGetPdnStatus( CellularContext_t * p
             }
 
             pPdnStatusBuffers++;
-            numStatusBuffers--;
-            pCommnadItem = pCommnadItem->pNext;
+            numRemainingBuffers--;
+            pCommandItem = pCommandItem->pNext;
+        }
+
+        /* Mark first unused status buffer as invalid */
+        if( ( pktStatus == CELLULAR_PKT_STATUS_OK ) &&
+            ( numRemainingBuffers > 0 ) &&
+            ( numRemainingBuffers < numStatusBuffers ) )
+        {
+            pPdnStatusBuffers[ numStatusBuffers - numRemainingBuffers - 1 ].contextId = INVALID_PDN_INDEX;
         }
     }
 
@@ -1234,6 +1255,7 @@ static CellularATError_t getDataFromResp( const CellularATCommandResponse_t * pA
                     *pDataRecv->pDataLen, outBufSize ) );
         dataLenToCopy = outBufSize;
         *pDataRecv->pDataLen = outBufSize;
+        // TODO (MV): How is this not an error condition? the socket data stream is now compromised!
     }
     else
     {
@@ -1506,15 +1528,15 @@ static CellularRat_t convertRatPriority( char * pRatString )
 {
     CellularRat_t retRat = CELLULAR_RAT_INVALID;
 
-    if( strncmp( pRatString, "01", RAT_PRIOIRTY_STRING_LENGTH ) == 0 )
+    if( strncmp( pRatString, "01", RAT_PRIORITY_STRING_LENGTH ) == 0 )
     {
         retRat = CELLULAR_RAT_GSM;
     }
-    else if( strncmp( pRatString, "02", RAT_PRIOIRTY_STRING_LENGTH ) == 0 )
+    else if( strncmp( pRatString, "02", RAT_PRIORITY_STRING_LENGTH ) == 0 )
     {
         retRat = CELLULAR_RAT_CATM1;
     }
-    else if( strncmp( pRatString, "03", RAT_PRIOIRTY_STRING_LENGTH ) == 0 )
+    else if( strncmp( pRatString, "03", RAT_PRIORITY_STRING_LENGTH ) == 0 )
     {
         retRat = CELLULAR_RAT_NBIOT;
     }
@@ -1539,9 +1561,9 @@ static CellularPktStatus_t _Cellular_RecvFuncGetRatPriority( CellularContext_t *
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
     CellularATError_t atCoreStatus = CELLULAR_AT_SUCCESS;
     CellularRat_t * pRatPriorities = NULL;
-    char pTempString[ RAT_PRIOIRTY_STRING_LENGTH + 1 ] = { "\0" }; /* The return RAT has two chars plus NULL char. */
+    char pTempString[ RAT_PRIORITY_STRING_LENGTH + 1 ] = { "\0" }; /* The return RAT has two chars plus NULL char. */
     uint32_t ratIndex = 0;
-    uint32_t maxRatPriorityLength = ( dataLen > RAT_PRIOIRTY_LIST_LENGTH ? RAT_PRIOIRTY_LIST_LENGTH : dataLen );
+    uint32_t maxRatPriorityLength = ( dataLen > RAT_PRIORITY_LIST_LENGTH ? RAT_PRIORITY_LIST_LENGTH : dataLen );
 
     if( pContext == NULL )
     {
@@ -1573,7 +1595,7 @@ static CellularPktStatus_t _Cellular_RecvFuncGetRatPriority( CellularContext_t *
 
         if( atCoreStatus == CELLULAR_AT_SUCCESS )
         {
-            if( strlen( pToken ) != ( RAT_PRIOIRTY_STRING_LENGTH * RAT_PRIOIRTY_LIST_LENGTH ) )
+            if( strlen( pToken ) != ( RAT_PRIORITY_STRING_LENGTH * RAT_PRIORITY_LIST_LENGTH ) )
             {
                 atCoreStatus = CELLULAR_AT_ERROR;
             }
@@ -1585,7 +1607,7 @@ static CellularPktStatus_t _Cellular_RecvFuncGetRatPriority( CellularContext_t *
 
             for( ratIndex = 0; ratIndex < maxRatPriorityLength; ratIndex++ )
             {
-                memcpy( pTempString, &pToken[ ratIndex * RAT_PRIOIRTY_STRING_LENGTH ], RAT_PRIOIRTY_STRING_LENGTH );
+                memcpy( pTempString, &pToken[ ratIndex * RAT_PRIORITY_STRING_LENGTH ], RAT_PRIORITY_STRING_LENGTH );
                 pRatPriorities[ ratIndex ] = convertRatPriority( pTempString );
             }
         }
@@ -1713,7 +1735,7 @@ static CellularPktStatus_t socketRecvDataPrefix( void * pCallbackContext,
         /* Check if the message is a data response. */
         if( strncmp( pLine, DATA_PREFIX_STRING, DATA_PREFIX_STRING_LENGTH ) == 0 )
         {
-            strncpy( pLocalLine, pLine, MAX_QIRD_STRING_PREFIX_STRING );
+            (void) strncpy( pLocalLine, pLine, MAX_QIRD_STRING_PREFIX_STRING );
             pLocalLine[ MAX_QIRD_STRING_PREFIX_STRING ] = '\0';
             pDataStart = pLocalLine;
 
@@ -2583,7 +2605,7 @@ CellularError_t Cellular_SocketRecv( CellularHandle_t cellularHandle,
          * The max length of the string is fixed and checked offline. */
         /* coverity[misra_c_2012_rule_21_6_violation]. */
         ( void ) snprintf( cmdBuf, CELLULAR_AT_CMD_TYPICAL_MAX_SIZE,
-                           "%s%ld,%ld", "AT+QIRD=", socketHandle->socketId, recvLen );
+                           "%s%ld,%ld", "AT+QIRD=", socketHandle->socketId, recvLen );  // TODO (MV): recvLen should be limited to max supported
         pktStatus = _Cellular_TimeoutAtcmdDataRecvRequestWithCallback( pContext,
                                                                        atReqSocketRecv, recvTimeout, socketRecvDataPrefix, NULL );
 
@@ -2613,7 +2635,7 @@ CellularError_t Cellular_SocketSend( CellularHandle_t cellularHandle,
     CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
-    uint32_t sendTimeout = DATA_SEND_TIMEOUT_MS;
+    uint32_t sendTimeout = DATA_SEND_TIMEOUT_MS;    // TODO (MV): This is garbage, according to documentation this should be 120000ul
     char cmdBuf[ CELLULAR_AT_CMD_TYPICAL_MAX_SIZE ] = { '\0' };
     CellularAtReq_t atReqSocketSend =
     {
@@ -2896,8 +2918,9 @@ CellularError_t Cellular_GetPdnStatus( CellularHandle_t cellularHandle,
         {
             /* Check if the PDN state is valid. The context ID of the first
              * invalid PDN status is set to FF. */
-            if( ( pTempPdnStatusBuffer->contextId <= CELLULAR_PDN_CONTEXT_ID_MAX ) &&
-                ( pTempPdnStatusBuffer->contextId != INVALID_PDN_INDEX ) )
+            if( ( pTempPdnStatusBuffer->contextId != INVALID_PDN_INDEX ) &&
+                ( pTempPdnStatusBuffer->contextId >= CELLULAR_PDN_CONTEXT_ID_MIN ) &&
+                ( pTempPdnStatusBuffer->contextId <= CELLULAR_PDN_CONTEXT_ID_MAX ) )
             {
                 ( *pNumStatus ) += 1U;
             }

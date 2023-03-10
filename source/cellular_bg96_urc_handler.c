@@ -63,15 +63,14 @@ static void _Cellular_ProcessIndication( CellularContext_t * pContext,
 CellularAtParseTokenMap_t CellularUrcHandlerTable[] =
 {
     { "CEREG",             Cellular_CommonUrcProcessCereg },
-    { "CGREG",             Cellular_CommonUrcProcessCgreg },
     { "CREG",              Cellular_CommonUrcProcessCreg  },
-    { "NORMAL POWER DOWN", _Cellular_ProcessPowerDown     },
-    { "PSM POWER DOWN",    _Cellular_ProcessPsmPowerDown  },
+    { "POWERED DOWN",      _Cellular_ProcessPowerDown     },
     { "QIND",              _Cellular_ProcessIndication    },
     { "QIOPEN",            _Cellular_ProcessSocketOpen    },
     { "QIURC",             _Cellular_ProcessSocketurc     },
     { "QSIMSTAT",          _Cellular_ProcessSimstat       },
     { "RDY",               _Cellular_ProcessModemRdy      }
+    // TODO (MV): Add SSL URC(s)
 };
 
 /* FreeRTOS Cellular Common Library porting interface. */
@@ -633,7 +632,7 @@ static void _Cellular_ProcessSocketurc( CellularContext_t * pContext,
             /* this whole if as a function and return pktstatus
              * take iotat_getnexttok inside
              * convert atcore status to pktstatus. */
-            if( strstr( pToken, "recv" ) != NULL )
+            if( strstr( pToken, "recv" ) != NULL )  // TODO (MV): Why is this comparison different?
             {
                 pktStatus = _parseSocketUrcRecv( pContext, pUrcStr );
             }
@@ -680,6 +679,8 @@ static void _Cellular_ProcessSimstat( CellularContext_t * pContext,
     {
         ( void ) _Cellular_ParseSimstat( pInputLine, &simCardState );
     }
+
+    // TODO (MV): This goes nowhere? What's the point?
 }
 
 /*-----------------------------------------------------------*/

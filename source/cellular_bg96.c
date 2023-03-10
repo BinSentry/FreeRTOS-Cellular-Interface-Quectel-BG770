@@ -28,7 +28,10 @@
 
 #include <stdint.h>
 #include "cellular_platform.h"
+/* The config header is always included first. */
+#ifndef CELLULAR_DO_NOT_USE_CUSTOM_CONFIG
 #include "cellular_config.h"
+#endif
 #include "cellular_config_defaults.h"
 #include "cellular_common.h"
 #include "cellular_common_portable.h"
@@ -36,9 +39,9 @@
 
 /*-----------------------------------------------------------*/
 
-#define ENBABLE_MODULE_UE_RETRY_COUNT      ( 3U )
-#define ENBABLE_MODULE_UE_RETRY_TIMEOUT    ( 5000U )
-#define BG96_NWSCANSEQ_CMD_MAX_SIZE        ( 29U ) /* The length of AT+QCFG="nwscanseq",020301,1\0. */
+#define ENABLE_MODULE_UE_RETRY_COUNT       ( 3U )
+#define ENABLE_MODULE_UE_RETRY_TIMEOUT     ( 5000U )
+#define BG770_NWSCANSEQ_CMD_MAX_SIZE       ( 30U ) /* Need at least the length of AT+QCFG="nwscanseq",020301,1\0. */
 
 /*-----------------------------------------------------------*/
 
@@ -47,7 +50,7 @@ static CellularError_t sendAtCommandWithRetryTimeout( CellularContext_t * pConte
 
 /*-----------------------------------------------------------*/
 
-static cellularModuleContext_t cellularBg96Context = { 0 };
+static cellularModuleContext_t cellularBg770Context = { 0 };
 
 /* FreeRTOS Cellular Common Library porting interface. */
 /* coverity[misra_c_2012_rule_8_7_violation] */
@@ -68,7 +71,7 @@ uint32_t CellularSrcTokenSuccessTableSize = sizeof( CellularSrcTokenSuccessTable
 /* FreeRTOS Cellular Common Library porting interface. */
 /* coverity[misra_c_2012_rule_8_7_violation] */
 const char * CellularUrcTokenWoPrefixTable[] =
-{ "NORMAL POWER DOWN", "PSM POWER DOWN", "RDY" };
+{ "POWERED DOWN", "RDY" };  // TODO (MV): Does "APP RDY" need to be added here?
 /* FreeRTOS Cellular Common Library porting interface. */
 /* coverity[misra_c_2012_rule_8_7_violation] */
 uint32_t CellularUrcTokenWoPrefixTableSize = sizeof( CellularUrcTokenWoPrefixTable ) / sizeof( char * );
@@ -88,15 +91,17 @@ static CellularError_t sendAtCommandWithRetryTimeout( CellularContext_t * pConte
     }
     else
     {
-        for( ; tryCount < ENBABLE_MODULE_UE_RETRY_COUNT; tryCount++ )
+        for( ; tryCount < ENABLE_MODULE_UE_RETRY_COUNT; tryCount++ )
         {
-            pktStatus = _Cellular_TimeoutAtcmdRequestWithCallback( pContext, *pAtReq, ENBABLE_MODULE_UE_RETRY_TIMEOUT );
+            pktStatus = _Cellular_TimeoutAtcmdRequestWithCallback( pContext, *pAtReq, ENABLE_MODULE_UE_RETRY_TIMEOUT );
             cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
 
             if( cellularStatus == CELLULAR_SUCCESS )
             {
                 break;
             }
+
+            // TODO (MV): Add delay?
         }
     }
 
@@ -113,6 +118,7 @@ static bool appendRatList( char * pRatList,
     /* Configure RAT Searching Sequence to default radio access technology. */
     switch( cellularRat )
     {
+        case CELLULAR_RAT_LTE:
         case CELLULAR_RAT_CATM1:
             strcat( pRatList, "02" );
             break;
@@ -155,10 +161,10 @@ CellularError_t Cellular_ModuleInit( const CellularContext_t * pContext,
     else
     {
         /* Initialize the module context. */
-        ( void ) memset( &cellularBg96Context, 0, sizeof( cellularModuleContext_t ) );
+        ( void ) memset( &cellularBg770Context, 0, sizeof( cellularModuleContext_t ) );
 
         /* Create the mutex for DNS. */
-        status = PlatformMutex_Create( &cellularBg96Context.dnsQueryMutex, false );
+        status = PlatformMutex_Create( &cellularBg770Context.dnsQueryMutex, false );
 
         if( status == false )
         {
@@ -167,16 +173,16 @@ CellularError_t Cellular_ModuleInit( const CellularContext_t * pContext,
         else
         {
             /* Create the queue for DNS. */
-            cellularBg96Context.pktDnsQueue = xQueueCreate( 1, sizeof( cellularDnsQueryResult_t ) );
+            cellularBg770Context.pktDnsQueue = xQueueCreate( 1, sizeof( cellularDnsQueryResult_t ) );
 
-            if( cellularBg96Context.pktDnsQueue == NULL )
+            if( cellularBg770Context.pktDnsQueue == NULL )
             {
-                PlatformMutex_Destroy( &cellularBg96Context.dnsQueryMutex );
+                PlatformMutex_Destroy( &cellularBg770Context.dnsQueryMutex );
                 cellularStatus = CELLULAR_NO_MEMORY;
             }
             else
             {
-                *ppModuleContext = ( void * ) &cellularBg96Context;
+                *ppModuleContext = ( void * ) &cellularBg770Context;
             }
         }
     }
@@ -199,10 +205,10 @@ CellularError_t Cellular_ModuleCleanUp( const CellularContext_t * pContext )
     else
     {
         /* Delete DNS queue. */
-        vQueueDelete( cellularBg96Context.pktDnsQueue );
+        vQueueDelete( cellularBg770Context.pktDnsQueue );
 
         /* Delete the mutex for DNS. */
-        PlatformMutex_Destroy( &cellularBg96Context.dnsQueryMutex );
+        PlatformMutex_Destroy( &cellularBg770Context.dnsQueryMutex );
     }
 
     return cellularStatus;
@@ -233,7 +239,7 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
         NULL,
         0
     };
-    char ratSelectCmd[ BG96_NWSCANSEQ_CMD_MAX_SIZE ] = "AT+QCFG=\"nwscanseq\",";
+    char ratSelectCmd[ BG770_NWSCANSEQ_CMD_MAX_SIZE ] = "AT+QCFG=\"nwscanseq\",";
     bool retAppendRat = true;
 
     if( pContext != NULL )
@@ -261,10 +267,10 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
         if( cellularStatus == CELLULAR_SUCCESS )
         {
             /* Setting URC output port. */
-            #if defined( CELLULAR_BG96_URC_PORT_USBAT ) || defined( BG96_URC_PORT_USBAT )
-                atReqGetNoResult.pAtCmd = "AT+QURCCFG=\"urcport\",\"usbat\"";
+            #if defined( CELLULAR_BG770_URC_PORT_EMUX ) || defined( BG770_URC_PORT_EMUX )
+                atReqGetNoResult.pAtCmd = "AT+QURCCFG=\"urcport\",\"emux\"";
             #else
-                atReqGetNoResult.pAtCmd = "AT+QURCCFG=\"urcport\",\"uart1\"";
+                atReqGetNoResult.pAtCmd = "AT+QURCCFG=\"urcport\",\"main\"";
             #endif
             cellularStatus = sendAtCommandWithRetryTimeout( pContext, &atReqGetNoResult );
         }
@@ -272,21 +278,21 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
         if( cellularStatus == CELLULAR_SUCCESS )
         {
             /* Configure Band configuration to all bands. */
-            atReqGetNoResult.pAtCmd = "AT+QCFG=\"band\",f,400a0e189f,a0e189f";
+            atReqGetNoResult.pAtCmd = "AT+QCFG=\"band\",f,2000000000f0e189f,200000000090f189f";   // TODO (MV): Make this configurable?
             cellularStatus = sendAtCommandWithRetryTimeout( pContext, &atReqGetNoResult );
         }
 
         if( cellularStatus == CELLULAR_SUCCESS )
         {
-            /* Configure RAT(s) to be Searched to Automatic. */
-            atReqGetNoResult.pAtCmd = "AT+QCFG=\"nwscanmode\",0,1";
+            /* Configure RAT(s) to be Searched to LTE. */
+            atReqGetNoResult.pAtCmd = "AT+QCFG=\"nwscanmode\",3,1";
             cellularStatus = sendAtCommandWithRetryTimeout( pContext, &atReqGetNoResult );
         }
 
         if( cellularStatus == CELLULAR_SUCCESS )
         {
-            /* Configure Network Category to be Searched under LTE RAT to LTE Cat M1 and Cat NB1. */
-            atReqGetNoResult.pAtCmd = "AT+QCFG=\"iotopmode\",2,1";
+            /* Configure Network Category to be Searched under LTE RAT to eMTC only. */
+            atReqGetNoResult.pAtCmd = "AT+QCFG=\"iotopmode\",0,1";
             cellularStatus = sendAtCommandWithRetryTimeout( pContext, &atReqGetNoResult );
         }
 
@@ -337,22 +343,27 @@ CellularError_t Cellular_ModuleEnableUrc( CellularContext_t * pContext )
         0
     };
 
+    /* Set numeric operator format. */
     atReqGetNoResult.pAtCmd = "AT+COPS=3,2";
     ( void ) _Cellular_AtcmdRequestWithCallback( pContext, atReqGetNoResult );
 
+    /* Enable network registration and location information unsolicited result code:
+        +CREG: <stat>[,[<lac>],[<ci>],[<AcT>]]
+     */
     atReqGetNoResult.pAtCmd = "AT+CREG=2";
     ( void ) _Cellular_AtcmdRequestWithCallback( pContext, atReqGetNoResult );
 
-    atReqGetNoResult.pAtCmd = "AT+CGREG=2";
-    ( void ) _Cellular_AtcmdRequestWithCallback( pContext, atReqGetNoResult );
-
+    /* Enable LTE network registration and location information unsolicited result code:
+        +CEREG: <stat>[,[<tac>],[<ci>],[<AcT>]]
+     */
     atReqGetNoResult.pAtCmd = "AT+CEREG=2";
     ( void ) _Cellular_AtcmdRequestWithCallback( pContext, atReqGetNoResult );
 
+    /* Enable time zone change event reporting by unsolicited result code +CTZV: <tz> */
     atReqGetNoResult.pAtCmd = "AT+CTZR=1";
     ( void ) _Cellular_AtcmdRequestWithCallback( pContext, atReqGetNoResult );
 
-    return cellularStatus;
+    return cellularStatus;  // TODO (MV): Why are these call's return code used?
 }
 
 /*-----------------------------------------------------------*/
