@@ -100,11 +100,11 @@
 
 #define INVALID_PDN_INDEX                        ( 0xFFU )
 
-#define DATA_PREFIX_STRING                       "+QIRD:"
-#define DATA_PREFIX_STRING_LENGTH                ( 6U )
+#define DATA_PREFIX_STRING                       "+QIRD:"   // TODO (MV): Uses of this need to be changed to also consider SSL version
+#define DATA_PREFIX_STRING_LENGTH                ( 6U )     // TODO (MV): Uses of this need to be changed to also consider SSL version
 #define DATA_PREFIX_STRING_CHANGELINE_LENGTH     ( 2U )     /* The length of the change line "\r\n". */
 
-#define MAX_QIRD_STRING_PREFIX_STRING            ( 14U )    /* The max data prefix string is "+QIRD: 1460\r\n" */
+#define MAX_QIRD_STRING_PREFIX_STRING            ( 14U )    /* The max data prefix string is "+QIRD: 1460\r\n" */ // TODO (MV): Uses of this need to be changed to also consider SSL version
 
 /*-----------------------------------------------------------*/
 
@@ -1078,7 +1078,7 @@ static CellularATError_t getPdnStatusParseToken( char * pToken,
 /*-----------------------------------------------------------*/
 
 static CellularATError_t getPdnStatusParseLine( char * pRespLine,
-                                                CellularPdnStatus_t * pPdnStatusBuffers )
+                                                CellularPdnStatus_t * pPdnStatusBuffer )
 {
     char * pToken = NULL;
     char * pLocalRespLine = pRespLine;
@@ -1103,7 +1103,7 @@ static CellularATError_t getPdnStatusParseLine( char * pRespLine,
 
         while( ( pToken != NULL ) && ( atCoreStatus == CELLULAR_AT_SUCCESS ) )
         {
-            atCoreStatus = getPdnStatusParseToken( pToken, tokenIndex, pPdnStatusBuffers );
+            atCoreStatus = getPdnStatusParseToken( pToken, tokenIndex, pPdnStatusBuffer );
 
             if( atCoreStatus != CELLULAR_AT_SUCCESS )
             {
@@ -1251,11 +1251,11 @@ static CellularATError_t getDataFromResp( const CellularATCommandResponse_t * pA
     /* Check if the received data size is greater than the output buffer size. */
     if( *pDataRecv->pDataLen > outBufSize )
     {
-        LogError( ( "Data is turncated, received data length %d, out buffer size %d",
+        LogError( ( "Data is truncated, received data length %d, out buffer size %d",
                     *pDataRecv->pDataLen, outBufSize ) );
         dataLenToCopy = outBufSize;
         *pDataRecv->pDataLen = outBufSize;
-        // TODO (MV): How is this not an error condition? the socket data stream is now compromised!
+        // TODO (MV): MAJOR, How is this not an error condition? the socket data stream is now compromised!
     }
     else
     {
@@ -1373,7 +1373,7 @@ static CellularATError_t parseQpsmsMode( char * pToken,
 
     if( atCoreStatus == CELLULAR_AT_SUCCESS )
     {
-        if( ( tempValue >= 0 ) && ( tempValue <= ( int32_t ) UINT8_MAX ) )
+        if( ( tempValue >= 0 ) && ( tempValue <= ( int32_t ) UINT8_MAX ) )  // TODO (MV): Only 0 and 1 are valid
         {
             pPsmSettings->mode = ( uint8_t ) tempValue;
         }
@@ -1393,7 +1393,7 @@ static CellularATError_t parseQpsmsRau( char * pToken,
                                         CellularPsmSettings_t * pPsmSettings )
 {
     int32_t tempValue = 0;
-    CellularATError_t atCoreStatus = Cellular_ATStrtoi( pToken, 10, &tempValue );
+    CellularATError_t atCoreStatus = Cellular_ATStrtoi( pToken, 2, &tempValue );
 
     if( atCoreStatus == CELLULAR_AT_SUCCESS )
     {
@@ -1417,7 +1417,7 @@ static CellularATError_t parseQpsmsRdyTimer( char * pToken,
                                              CellularPsmSettings_t * pPsmSettings )
 {
     int32_t tempValue = 0;
-    CellularATError_t atCoreStatus = Cellular_ATStrtoi( pToken, 10, &tempValue );
+    CellularATError_t atCoreStatus = Cellular_ATStrtoi( pToken, 2, &tempValue );
 
     if( atCoreStatus == CELLULAR_AT_SUCCESS )
     {
@@ -1441,7 +1441,7 @@ static CellularATError_t parseQpsmsTau( char * pToken,
                                         CellularPsmSettings_t * pPsmSettings )
 {
     int32_t tempValue = 0;
-    CellularATError_t atCoreStatus = Cellular_ATStrtoi( pToken, 10, &tempValue );
+    CellularATError_t atCoreStatus = Cellular_ATStrtoi( pToken, 2, &tempValue );
 
     if( atCoreStatus == CELLULAR_AT_SUCCESS )
     {
@@ -1465,7 +1465,7 @@ static CellularATError_t parseQpsmsActiveTime( char * pToken,
                                                CellularPsmSettings_t * pPsmSettings )
 {
     int32_t tempValue = 0;
-    CellularATError_t atCoreStatus = Cellular_ATStrtoi( pToken, 10, &tempValue );
+    CellularATError_t atCoreStatus = Cellular_ATStrtoi( pToken, 2, &tempValue );
 
     if( atCoreStatus == CELLULAR_AT_SUCCESS )
     {
@@ -1534,7 +1534,7 @@ static CellularRat_t convertRatPriority( char * pRatString )
     }
     else if( strncmp( pRatString, "02", RAT_PRIORITY_STRING_LENGTH ) == 0 )
     {
-        retRat = CELLULAR_RAT_CATM1;
+        retRat = CELLULAR_RAT_LTE;
     }
     else if( strncmp( pRatString, "03", RAT_PRIORITY_STRING_LENGTH ) == 0 )
     {
@@ -1592,6 +1592,9 @@ static CellularPktStatus_t _Cellular_RecvFuncGetRatPriority( CellularContext_t *
         {
             atCoreStatus = Cellular_ATGetNextTok( &pInputLine, &pToken );
         }
+
+        // TODO (MV): Is this actually guaranteed to always be 3 RATs, what if automatic is used or GSM and NB-IoT are non-existent?
+        // TODO (MV): Change this to support up to 3 RATs and set all unused entries to invalid and support default of 00 [Automatic (eMTC → NB-IoT)]
 
         if( atCoreStatus == CELLULAR_AT_SUCCESS )
         {
@@ -1732,6 +1735,7 @@ static CellularPktStatus_t socketRecvDataPrefix( void * pCallbackContext,
     }
     else
     {
+        // TODO (MV): Need to consider SSL data response here or have a different version of this function for SSL, probably different version of function would be cleanest
         /* Check if the message is a data response. */
         if( strncmp( pLine, DATA_PREFIX_STRING, DATA_PREFIX_STRING_LENGTH ) == 0 )
         {
@@ -1742,7 +1746,7 @@ static CellularPktStatus_t socketRecvDataPrefix( void * pCallbackContext,
             /* Add a '\0' char at the end of the line. */
             for( i = 0; i < localLineLength; i++ )
             {
-                if( ( pDataStart[ i ] == '\r' ) || ( pDataStart[ i ] == '\n' ) )
+                if( ( pDataStart[ i ] == '\r' ) || ( pDataStart[ i ] == '\n' ) )    // TODO (MV): Strangeness here were line considered ended if only '\n' but later expect "\r\n"
                 {
                     pDataStart[ i ] = '\0';
                     prefixLineLength = i;
@@ -1879,7 +1883,9 @@ static void _dnsResultCallback( cellularModuleContext_t * pModuleContext,
     {
         if( pModuleContext->dnsResultNumber == ( uint8_t ) 0 )
         {
-            atCoreStatus = Cellular_ATGetNextTok( &pDnsResultStr, &pToken );
+            atCoreStatus = Cellular_ATGetNextTok( &pDnsResultStr, &pToken );    // TODO (MV): Ignoring result code? This is so stupid, fix!
+                                                                                //            Should be sending error code if result code is not 0 (success).
+                                                                                //            Otherwise have a 60s timeout for no reason, so, so stupid! What a waste of power
 
             if( atCoreStatus == CELLULAR_AT_SUCCESS )
             {
@@ -1958,7 +1964,7 @@ CellularError_t Cellular_SetRatPriority( CellularHandle_t cellularHandle,
     else
     {
         /** Using AT+QCFG="nwscanseq",<scanseq>,<effect> to set the RAT priorities while searching.
-         * <scanseq> can take value 01 for GSM, 02 for CAT M1 and 03 for CAT NB1.
+         * <scanseq> can take value 01 for GSM, 02 for eMTC / LTE-M and 03 for NB-IoT.
          * <effect> can take value 0 for take effect after reboot and 1 for take effect immediately.
          *  If < effect > is omitted, RAT priority takes effect immediately.
          *  e.g. AT+QCFG="nwscanseq",020301,1 for decreasing RAT Priorities CAT M1, CAT NB1, GSM to take effect immediately. */
@@ -1970,7 +1976,7 @@ CellularError_t Cellular_SetRatPriority( CellularHandle_t cellularHandle,
             {
                 ( void ) strcat( cmdBuf, "01" );
             }
-            else if( pRatPriorities[ i ] == CELLULAR_RAT_CATM1 )
+            else if( pRatPriorities[ i ] == CELLULAR_RAT_CATM1 || pRatPriorities[ i ] == CELLULAR_RAT_LTE )
             {
                 ( void ) strcat( cmdBuf, "02" );
             }
@@ -2214,15 +2220,15 @@ static CellularPktStatus_t socketSendDataPrefix( void * pCallbackContext,
         LogError( ( "socketSendDataPrefix: pCallbackContext is not NULL" ) );
         pktStatus = CELLULAR_PKT_STATUS_BAD_PARAM;
     }
-    else if( *pBytesRead != 2U )
+    else if( *pBytesRead != 2U )        // TODO (MV): Is this actually 2 characters, expecting just one '>'
     {
         LogDebug( ( "socketSendDataPrefix: pBytesRead %u %s is not 1", *pBytesRead, pLine ) );
     }
     else
     {
         /* After the data prefix, there should not be any data in stream.
-         * Cellular commmon processes AT command in lines. Add a '\0' after '>'. */
-        if( strcmp( pLine, "> " ) == 0 )
+         * Cellular common processes AT command in lines. Add a '\0' after '>'. */
+        if( strcmp( pLine, "> " ) == 0 )        // TODO (MV): MAJOR, Is this actually 2 characters, expecting just one '>'
         {
             pLine[ 1 ] = '\n';
         }
@@ -2267,15 +2273,23 @@ CellularError_t Cellular_SetPsmSettings( CellularHandle_t cellularHandle,
     {
         /* Form the AT command. */
 
+        if (pPsmSettings->periodicRauValue != 0) {
+            LogWarn( ( "Cellular_SetPsmSettings: periodicRauValue not supported" ) );
+        }
+
+        if (pPsmSettings->gprsReadyTimer != 0) {
+            LogWarn( ( "Cellular_SetPsmSettings: gprsReadyTimer not supported" ) );
+        }
+
         /* The return value of snprintf is not used.
          * The max length of the string is fixed and checked offline. */
         /* coverity[misra_c_2012_rule_21_6_violation]. */
         ( void ) snprintf( cmdBuf, CELLULAR_AT_CMD_MAX_SIZE, "AT+QPSMS=%d,", pPsmSettings->mode );
         cmdBufLen = strlen( cmdBuf );
         cmdBufLen = cmdBufLen + appendBinaryPattern( &cmdBuf[ cmdBufLen ], ( CELLULAR_AT_CMD_MAX_SIZE - cmdBufLen ),
-                                                     pPsmSettings->periodicRauValue, false );
+                                                     0, false );    // NOTE: BG770 doesn't support this parameter
         cmdBufLen = cmdBufLen + appendBinaryPattern( &cmdBuf[ cmdBufLen ], ( CELLULAR_AT_CMD_MAX_SIZE - cmdBufLen ),
-                                                     pPsmSettings->gprsReadyTimer, false );
+                                                     0, false );    // NOTE: BG770 doesn't support this parameter
         cmdBufLen = cmdBufLen + appendBinaryPattern( &cmdBuf[ cmdBufLen ], ( CELLULAR_AT_CMD_MAX_SIZE - cmdBufLen ),
                                                      pPsmSettings->periodicTauValue, false );
         cmdBufLen = cmdBufLen + appendBinaryPattern( &cmdBuf[ cmdBufLen ], ( CELLULAR_AT_CMD_MAX_SIZE - cmdBufLen ),
@@ -2605,7 +2619,7 @@ CellularError_t Cellular_SocketRecv( CellularHandle_t cellularHandle,
          * The max length of the string is fixed and checked offline. */
         /* coverity[misra_c_2012_rule_21_6_violation]. */
         ( void ) snprintf( cmdBuf, CELLULAR_AT_CMD_TYPICAL_MAX_SIZE,
-                           "%s%ld,%ld", "AT+QIRD=", socketHandle->socketId, recvLen );  // TODO (MV): recvLen should be limited to max supported
+                           "%s%ld,%ld", "AT+QIRD=", socketHandle->socketId, recvLen );
         pktStatus = _Cellular_TimeoutAtcmdDataRecvRequestWithCallback( pContext,
                                                                        atReqSocketRecv, recvTimeout, socketRecvDataPrefix, NULL );
 
@@ -2635,7 +2649,7 @@ CellularError_t Cellular_SocketSend( CellularHandle_t cellularHandle,
     CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
-    uint32_t sendTimeout = DATA_SEND_TIMEOUT_MS;    // TODO (MV): This is garbage, according to documentation this should be 120000ul
+    uint32_t sendTimeout = DATA_SEND_TIMEOUT_MS;
     char cmdBuf[ CELLULAR_AT_CMD_TYPICAL_MAX_SIZE ] = { '\0' };
     CellularAtReq_t atReqSocketSend =
     {
@@ -2776,6 +2790,8 @@ CellularError_t Cellular_SocketClose( CellularHandle_t cellularHandle,
 
             if( pktStatus != CELLULAR_PKT_STATUS_OK )
             {
+                // TODO (MV): Why is this being ignored? This results in potentially orphaning the Quectel socket.
+                //            Should handle the cases where the modem didn't receive the command successfully by retrying
                 LogError( ( "Cellular_SocketClose: Socket close failed, cmdBuf:%s, PktRet: %d", cmdBuf, pktStatus ) );
             }
         }
@@ -3171,7 +3187,7 @@ CellularError_t Cellular_GetHostByName( CellularHandle_t cellularHandle,
         /* coverity[misra_c_2012_rule_21_6_violation]. */
         ( void ) snprintf( cmdBuf, CELLULAR_AT_CMD_QUERY_DNS_MAX_SIZE,
                            "AT+QIDNSGIP=%u,\"%s\"", contextId, pcHostName );
-        pktStatus = _Cellular_AtcmdRequestWithCallback( pContext, atReqQueryDns );
+        pktStatus = _Cellular_AtcmdRequestWithCallback( pContext, atReqQueryDns );  // TODO (MV): Is the default 5s timeout valid here, datasheet doesn't specify time to get OK, probably OK, ask Quectel?
 
         if( pktStatus != CELLULAR_PKT_STATUS_OK )
         {
