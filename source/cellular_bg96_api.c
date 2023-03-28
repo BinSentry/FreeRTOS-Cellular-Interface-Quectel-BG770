@@ -3243,3 +3243,482 @@ CellularError_t Cellular_Init( CellularHandle_t * pCellularHandle,
 }
 
 /*-----------------------------------------------------------*/
+
+static bool _parseFileUploadResult(char * pQfuplPayload,
+                                   CellularFileUploadResult_t * pFileUploadResult )
+{
+    char * pToken = NULL, * pTmpQfuplPayload = pQfuplPayload;
+    int32_t tempValue = 0;
+    uint32_t tempUValue = 0;
+    bool parseStatus = true;
+    CellularATError_t atCoreStatus = CELLULAR_AT_SUCCESS;
+
+    if( ( pFileUploadResult == NULL ) || (pQfuplPayload == NULL ) )
+    {
+        LogError( ( "_parseSignalQuality: Invalid Input Parameters" ) );
+        parseStatus = false;
+    }
+
+    if( ( parseStatus == true ) && (Cellular_ATGetNextTok(&pTmpQfuplPayload, &pToken ) == CELLULAR_AT_SUCCESS ) )
+    {
+        atCoreStatus = Cellular_ATStrtoui( pToken, 10, &tempUValue );
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            pFileUploadResult->uploadedFileLength = tempUValue;
+        }
+        else
+        {
+            LogError( ( "_parseFileUploadResult: Error in processing upload size. Token %s", pToken ) );
+            parseStatus = false;
+        }
+    }
+    else
+    {
+        parseStatus = false;
+    }
+
+    if( ( parseStatus == true ) && (Cellular_ATGetNextTok(&pTmpQfuplPayload, &pToken ) == CELLULAR_AT_SUCCESS ) )
+    {
+        atCoreStatus = Cellular_ATStrtoi( pToken, 10, &tempValue );
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS &&
+            tempValue >= 0 && tempValue <= UINT16_MAX )
+        {
+            pFileUploadResult->xorChecksum = ( uint16_t ) tempValue;
+        }
+        else
+        {
+            LogError( ( "_parseFileUploadResult: Error in processing XOR checksum. Token %s", pToken ) );
+            parseStatus = false;
+        }
+    }
+    else
+    {
+        parseStatus = false;
+    }
+
+    return parseStatus;
+}
+
+/* FreeRTOS Cellular Library types. */
+/* coverity[misra_c_2012_rule_8_13_violation] */
+static CellularPktStatus_t _Cellular_RecvFileUploadResult( CellularContext_t * pContext,
+                                                           const CellularATCommandResponse_t * pAtResp,
+                                                           void * pData,
+                                                           uint16_t dataLen )
+{
+    char * pInputLine = NULL;
+    CellularFileUploadResult_t * pFileUploadResult = ( CellularFileUploadResult_t * ) pData;
+    bool parseStatus = true;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    CellularATError_t atCoreStatus = CELLULAR_AT_SUCCESS;
+
+    if( pContext == NULL )
+    {
+        pktStatus = CELLULAR_PKT_STATUS_INVALID_HANDLE;
+    }
+    else if( ( pFileUploadResult == NULL ) || ( dataLen != sizeof( CellularFileUploadResult_t ) ) )
+    {
+        pktStatus = CELLULAR_PKT_STATUS_BAD_PARAM;
+    }
+    else if( ( pAtResp == NULL ) || ( pAtResp->pItm == NULL ) || ( pAtResp->pItm->pLine == NULL ) )
+    {
+        LogError( ( "GetSignalInfo: Input Line passed is NULL" ) );
+        pktStatus = CELLULAR_PKT_STATUS_FAILURE;
+    }
+    else
+    {
+        pInputLine = pAtResp->pItm->pLine;
+        atCoreStatus = Cellular_ATRemovePrefix( &pInputLine );
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATRemoveAllDoubleQuote( pInputLine );
+        }
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATRemoveAllWhiteSpaces( pInputLine );
+        }
+
+        if( atCoreStatus != CELLULAR_AT_SUCCESS )
+        {
+            pktStatus = _Cellular_TranslateAtCoreStatus( atCoreStatus );
+        }
+    }
+
+    if( pktStatus == CELLULAR_PKT_STATUS_OK )
+    {
+        parseStatus = _parseFileUploadResult(pInputLine, pFileUploadResult );
+
+        if( parseStatus != true )
+        {
+            pFileUploadResult->uploadedFileLength = 0;
+            pFileUploadResult->xorChecksum = 0;
+            pktStatus = CELLULAR_PKT_STATUS_FAILURE;
+        }
+    }
+
+    return pktStatus;
+}
+
+static CellularPktStatus_t fileUploadDataPrefix( void * pCallbackContext,
+                                                 char * pLine,
+                                                 uint32_t * pBytesRead )
+{
+    static const int FILE_UPLOAD_DATA_PREFIX_LENGTH = 7U;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+
+    if( ( pLine == NULL ) || ( pBytesRead == NULL ) )
+    {
+        LogError( ( "fileUploadDataPrefix: pLine is invalid or pBytesRead is invalid" ) );
+        pktStatus = CELLULAR_PKT_STATUS_BAD_PARAM;
+    }
+    else if( pCallbackContext != NULL )
+    {
+        LogError( ( "fileUploadDataPrefix: pCallbackContext is not NULL" ) );
+        pktStatus = CELLULAR_PKT_STATUS_BAD_PARAM;
+    }
+    else if( *pBytesRead != FILE_UPLOAD_DATA_PREFIX_LENGTH )    // TODO (MV): Should this be 8? ie. 7 + 1 like in socketSendDataPrefix?
+    {
+        LogDebug( ( "fileUploadDataPrefix: pBytesRead %u %s is not %d", *pBytesRead, pLine, FILE_UPLOAD_DATA_PREFIX_LENGTH ) );
+    }
+    else
+    {
+        /* After the data prefix, there should not be any data in stream.
+         * Cellular common processes AT command in lines. Add a '\0' after 'CONNECT'. */
+        if( strcmp( pLine, "CONNECT" ) == 0 )
+        {
+            pLine[ FILE_UPLOAD_DATA_PREFIX_LENGTH ] = '\n';
+        }
+    }
+
+    return pktStatus;
+}
+
+// TODO (MV): Confirm post data response still works
+CellularError_t Cellular_UploadFileToModem( CellularHandle_t cellularHandle,
+                                            const char * pcFilename,
+                                            const uint8_t * pFile,
+                                            uint32_t fileLength,
+                                            CellularFileUploadResult_t * fileUploadResult )
+{
+    CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    uint32_t sendTimeout = DATA_SEND_TIMEOUT_MS;
+    char cmdBuf[ CELLULAR_AT_CMD_MAX_SIZE ] = { '\0' };
+    uint32_t sentFileLength = 0;
+    CellularAtReq_t atReqSocketSend =
+    {
+        cmdBuf,
+        CELLULAR_AT_WITH_PREFIX,
+        "+QFUPL",
+        _Cellular_RecvFileUploadResult,
+        fileUploadResult,
+        sizeof(CellularFileUploadResult_t),
+    };
+    CellularAtDataReq_t atDataReqSocketSend =
+    {
+            pFile,
+            fileLength,
+            &sentFileLength,
+            NULL,
+            0
+    };
+
+    /* pContext is checked in _Cellular_CheckLibraryStatus function. */
+    cellularStatus = _Cellular_CheckLibraryStatus( pContext );
+
+    if( cellularStatus != CELLULAR_SUCCESS )
+    {
+        LogError( ( "_Cellular_CheckLibraryStatus failed." ) );
+    }
+    else if((pFile == NULL ) || (fileLength == 0U ) || (fileLength > CELLULAR_CONFIG_FILE_UPLOAD_MAX_SIZE) || (fileUploadResult == NULL ) )
+    {
+        LogError( ( "Cellular_UploadFileToModem: Invalid parameter." ) );
+        cellularStatus = CELLULAR_BAD_PARAMETER;
+    }
+    else
+    {
+        /* Send data length check. */
+        if(fileLength > ( uint32_t ) CELLULAR_CONFIG_FILE_UPLOAD_MAX_SIZE )
+        {
+            atDataReqSocketSend.dataLen = ( uint32_t ) CELLULAR_CONFIG_FILE_UPLOAD_MAX_SIZE;
+        }
+
+        /* Form the AT command. */
+
+        /* The return value of snprintf is not used.
+         * The max length of the string is fixed and checked offline. */
+        /* coverity[misra_c_2012_rule_21_6_violation]. */
+        ( void ) snprintf( cmdBuf, CELLULAR_AT_CMD_MAX_SIZE, "%s\"%s\",%lu",
+                           "AT+QFUPL=", pcFilename, atDataReqSocketSend.dataLen );
+
+        pktStatus = _Cellular_AtcmdDataSend( pContext, atReqSocketSend, atDataReqSocketSend,
+                                             fileUploadDataPrefix, NULL,
+                                             PACKET_REQ_TIMEOUT_MS, PACKET_REQ_TIMEOUT_MS, 0U );
+
+        if( pktStatus != CELLULAR_PKT_STATUS_OK )
+        {
+            LogError( ( "Cellular_UploadFileToModem: Data send fail, PktRet: %d", pktStatus ) );
+            cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
+        } else if (sentFileLength != fileLength) {
+            LogError( ( "Cellular_UploadFileToModem: File send fail, len: %lu, sentLen: %lu", fileLength, sentFileLength ) );
+            cellularStatus = CELLULAR_INTERNAL_FAILURE;
+        }
+    }
+
+    return cellularStatus;
+}
+
+/*-----------------------------------------------------------*/
+
+CellularError_t Cellular_DeleteFileOnModem( CellularHandle_t cellularHandle,
+                                            const char * pcFilename )
+{
+    CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
+    uint8_t i = 0;
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    char cmdBuf[ CELLULAR_AT_CMD_MAX_SIZE ] = { '\0' };
+    CellularAtReq_t atReqDeleteFile =
+    {
+        cmdBuf,
+        CELLULAR_AT_NO_RESULT,
+        NULL,
+        NULL,
+        NULL,
+        0,
+    };
+
+    cellularStatus = _Cellular_CheckLibraryStatus( pContext );
+
+    if( cellularStatus != CELLULAR_SUCCESS )
+    {
+        LogDebug( ( "_Cellular_CheckLibraryStatus failed" ) );
+    }
+    else if( pcFilename == NULL )
+    {
+        cellularStatus = CELLULAR_BAD_PARAMETER;
+    }
+    else {
+        /* Form the AT command. */
+
+        /* The return value of snprintf is not used.
+         * The max length of the string is fixed and checked offline. */
+        /* coverity[misra_c_2012_rule_21_6_violation]. */
+        (void) snprintf(cmdBuf, CELLULAR_AT_CMD_MAX_SIZE, "%s\"%s\"", "AT+QFDEL=", pcFilename);
+        pktStatus = _Cellular_AtcmdRequestWithCallback(pContext, atReqDeleteFile);
+
+        if (pktStatus != CELLULAR_PKT_STATUS_OK) {
+            LogError(("Cellular_DeleteFileOnModem: couldn't delete the file, cmdBuf:%s, PktRet: %d", cmdBuf, pktStatus));
+            cellularStatus = _Cellular_TranslatePktStatus(pktStatus);
+        }
+    }
+
+    return cellularStatus;
+}
+
+/*-----------------------------------------------------------*/
+
+typedef struct BG770FileCRCs
+{
+    uint32_t crc32;
+    uint16_t crc16;
+    uint16_t crc16_ccitt;
+} BG770FileCRCs_t;
+
+static bool _parseFileCRCs( char * pQfcrcPayload,
+                            BG770FileCRCs_t * pFileCRCs )
+{
+    char * pToken = NULL, * pTmpQfcrcPayload = pQfcrcPayload;
+    int32_t tempValue = 0;
+    uint32_t tempUValue = 0;
+    bool parseStatus = true;
+    CellularATError_t atCoreStatus = CELLULAR_AT_SUCCESS;
+
+    if( ( pFileCRCs == NULL ) || ( pQfcrcPayload == NULL ) )
+    {
+        LogError( ( "_parseSignalQuality: Invalid Input Parameters" ) );
+        parseStatus = false;
+    }
+
+    if( ( parseStatus == true ) && (Cellular_ATGetNextTok(&pTmpQfcrcPayload, &pToken ) == CELLULAR_AT_SUCCESS ) )
+    {
+        atCoreStatus = Cellular_ATStrtoui( pToken, 10, &tempUValue );
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            pFileCRCs->crc32 = tempUValue;
+        }
+        else
+        {
+            LogError( ( "_parseFileCRCs: Error in processing CRC32. Token %s", pToken ) );
+            parseStatus = false;
+        }
+    }
+    else
+    {
+        parseStatus = false;
+    }
+
+    if( ( parseStatus == true ) && (Cellular_ATGetNextTok(&pTmpQfcrcPayload, &pToken ) == CELLULAR_AT_SUCCESS ) )
+    {
+        atCoreStatus = Cellular_ATStrtoi( pToken, 10, &tempValue );
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS &&
+            tempValue >= 0 && tempValue <= UINT16_MAX )
+        {
+            pFileCRCs->crc16 = ( uint16_t ) tempValue;
+        }
+        else
+        {
+            LogError( ( "_parseFileCRCs: Error in processing CRC16. Token %s", pToken ) );
+            parseStatus = false;
+        }
+    }
+    else
+    {
+        parseStatus = false;
+    }
+
+    if( ( parseStatus == true ) && (Cellular_ATGetNextTok(&pTmpQfcrcPayload, &pToken ) == CELLULAR_AT_SUCCESS ) )
+    {
+        atCoreStatus = Cellular_ATStrtoi( pToken, 10, &tempValue );
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS &&
+            tempValue >= 0 && tempValue <= UINT16_MAX )
+        {
+            pFileCRCs->crc16_ccitt = ( uint16_t ) tempValue;
+        }
+        else
+        {
+            LogError( ( "_parseFileCRCs: Error in processing CCITT CRC16. pToken %s", pToken ) );
+            parseStatus = false;
+        }
+    }
+    else
+    {
+        parseStatus = false;
+    }
+
+    return parseStatus;
+}
+
+/* FreeRTOS Cellular Library types. */
+/* coverity[misra_c_2012_rule_8_13_violation] */
+static CellularPktStatus_t _Cellular_RecvFileCRCs( CellularContext_t * pContext,
+                                                   const CellularATCommandResponse_t * pAtResp,
+                                                   void * pData,
+                                                   uint16_t dataLen )
+{
+    char * pInputLine = NULL;
+    BG770FileCRCs_t * pFileCRCs = ( BG770FileCRCs_t * ) pData;
+    bool parseStatus = true;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    CellularATError_t atCoreStatus = CELLULAR_AT_SUCCESS;
+
+    if( pContext == NULL )
+    {
+        pktStatus = CELLULAR_PKT_STATUS_INVALID_HANDLE;
+    }
+    else if( ( pFileCRCs == NULL ) || ( dataLen != sizeof( BG770FileCRCs_t ) ) )
+    {
+        pktStatus = CELLULAR_PKT_STATUS_BAD_PARAM;
+    }
+    else if( ( pAtResp == NULL ) || ( pAtResp->pItm == NULL ) || ( pAtResp->pItm->pLine == NULL ) )
+    {
+        LogError( ( "GetSignalInfo: Input Line passed is NULL" ) );
+        pktStatus = CELLULAR_PKT_STATUS_FAILURE;
+    }
+    else
+    {
+        pInputLine = pAtResp->pItm->pLine;
+        atCoreStatus = Cellular_ATRemovePrefix( &pInputLine );
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATRemoveAllDoubleQuote( pInputLine );
+        }
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATRemoveAllWhiteSpaces( pInputLine );
+        }
+
+        if( atCoreStatus != CELLULAR_AT_SUCCESS )
+        {
+            pktStatus = _Cellular_TranslateAtCoreStatus( atCoreStatus );
+        }
+    }
+
+    if( pktStatus == CELLULAR_PKT_STATUS_OK )
+    {
+        parseStatus = _parseFileCRCs( pInputLine, pFileCRCs );
+
+        if( parseStatus != true )
+        {
+            pFileCRCs->crc32 = 0;
+            pFileCRCs->crc16 = 0;
+            pFileCRCs->crc16_ccitt = 0;
+            pktStatus = CELLULAR_PKT_STATUS_FAILURE;
+        }
+    }
+
+    return pktStatus;
+}
+
+CellularError_t Cellular_GetModemFileCRC32( CellularHandle_t cellularHandle,
+                                            const char * pcFilename,
+                                            uint32_t * crc32 )
+{
+    CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    BG770FileCRCs_t fileCRCs = { 0 };
+    char cmdBuf[ CELLULAR_AT_CMD_MAX_SIZE ] = { '\0' };
+    CellularAtReq_t atReqGetFileCRCs =
+    {
+        cmdBuf,
+        CELLULAR_AT_WITH_PREFIX,
+        "+QFCRC",
+        _Cellular_RecvFileCRCs,
+        &fileCRCs,
+        sizeof(BG770FileCRCs_t),
+    };
+
+    cellularStatus = _Cellular_CheckLibraryStatus( pContext );
+
+    if( cellularStatus != CELLULAR_SUCCESS )
+    {
+        LogDebug( ( "_Cellular_CheckLibraryStatus failed" ) );
+    }
+    else if( ( pcFilename == NULL ) || ( crc32 == NULL ) )
+    {
+        cellularStatus = CELLULAR_BAD_PARAMETER;
+    }
+    else
+    {
+        /* Form the AT command. */
+
+        /* The return value of snprintf is not used.
+         * The max length of the string is fixed and checked offline. */
+        /* coverity[misra_c_2012_rule_21_6_violation]. */
+        ( void ) snprintf( cmdBuf, CELLULAR_AT_CMD_MAX_SIZE, "%s\"%s\"", "AT+QFCRC=", pcFilename );
+        pktStatus = _Cellular_AtcmdRequestWithCallback( pContext, atReqGetFileCRCs );
+
+        *crc32 = fileCRCs.crc32;
+
+        if( pktStatus != CELLULAR_PKT_STATUS_OK )
+        {
+            LogError( ( "Cellular_GetModemFileCRC32: couldn't get the file CRC32, cmdBuf:%s, PktRet: %d", cmdBuf, pktStatus ) );
+            cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
+        }
+    }
+
+    return cellularStatus;
+}
+
+/*-----------------------------------------------------------*/
