@@ -48,8 +48,12 @@ static void _Cellular_ProcessModemRdy( CellularContext_t * pContext,
                                        char * pInputLine );
 static void _Cellular_ProcessSocketOpen( CellularContext_t * pContext,
                                          char * pInputLine );
+static void _Cellular_ProcessSSLSocketOpen( CellularContext_t * pContext,
+                                            char * pInputLine );
 static void _Cellular_ProcessSocketurc( CellularContext_t * pContext,
                                         char * pInputLine );
+static void _Cellular_ProcessSSLSocketurc( CellularContext_t * pContext,
+                                           char * pInputLine );
 static void _Cellular_ProcessSimstat( CellularContext_t * pContext,
                                       char * pInputLine );
 static void _Cellular_ProcessIndication( CellularContext_t * pContext,
@@ -69,7 +73,9 @@ CellularAtParseTokenMap_t CellularUrcHandlerTable[] =
     { "QIOPEN",            _Cellular_ProcessSocketOpen    },
     { "QIURC",             _Cellular_ProcessSocketurc     },
     { "QSIMSTAT",          _Cellular_ProcessSimstat       },
-    { "RDY",               _Cellular_ProcessModemRdy      }
+    { "RDY",               _Cellular_ProcessModemRdy      },
+    { "QSSLOPEN",          _Cellular_ProcessSSLSocketOpen },
+    { "QSSLURC",           _Cellular_ProcessSSLSocketurc  }
     // TODO (MV): Add SSL URC(s)
 };
 
@@ -119,7 +125,7 @@ static CellularPktStatus_t _parseSocketOpenNextTok( const char * pToken,
         }
         else
         {
-            LogError( ( ( "_parseSocketOpen: Socket open callback for conn %d is not set!!", sockIndex ) ) );
+            LogError( ( "_parseSocketOpen: Socket open callback for conn %lu is not set!!", sockIndex ) );
         }
     }
 
@@ -173,7 +179,7 @@ static void _Cellular_ProcessSocketOpen( CellularContext_t * pContext,
             }
             else
             {
-                LogError( ( ( "Error processing in Socket index. token %s", pToken ) ) );
+                LogError( ( "Error processing in Socket index. token %s", pToken ) );
                 atCoreStatus = CELLULAR_AT_ERROR;
             }
         }
@@ -184,6 +190,96 @@ static void _Cellular_ProcessSocketOpen( CellularContext_t * pContext,
 
             if( pSocketData != NULL )
             {
+                if (pSocketData->socketProtocol == CELLULAR_SOCKET_PROTOCOL_SSL_OVER_TCP) {
+                    LogError( ( "Socket open URC for SSL socket. sockIndex %lu", sockIndex ) );
+                }
+
+                atCoreStatus = Cellular_ATGetNextTok( &pUrcStr, &pToken );
+
+                if( atCoreStatus == CELLULAR_AT_SUCCESS )
+                {
+                    pktStatus = _parseSocketOpenNextTok( pToken, sockIndex, pSocketData );
+                }
+            }
+            else
+            {
+                pktStatus = CELLULAR_PKT_STATUS_FAILURE;
+            }
+        }
+
+        if( atCoreStatus != CELLULAR_AT_SUCCESS )
+        {
+            pktStatus = _Cellular_TranslateAtCoreStatus( atCoreStatus );
+        }
+    }
+
+    if( pktStatus != CELLULAR_PKT_STATUS_OK )
+    {
+        LogDebug( ( "Socket Open URC Parse failure" ) );
+    }
+}
+
+/*-----------------------------------------------------------*/
+
+/* Cellular common prototype. */
+/* coverity[misra_c_2012_rule_8_13_violation] */
+static void _Cellular_ProcessSSLSocketOpen( CellularContext_t * pContext,
+                                            char * pInputLine )
+{
+    char * pUrcStr = NULL, * pToken = NULL;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    CellularATError_t atCoreStatus = CELLULAR_AT_SUCCESS;
+    uint32_t sockIndex = 0;
+    int32_t tempValue = 0;
+    CellularSocketContext_t * pSocketData = NULL;
+
+    if( pContext == NULL )
+    {
+        pktStatus = CELLULAR_PKT_STATUS_FAILURE;
+    }
+    else if( pInputLine == NULL )
+    {
+        pktStatus = CELLULAR_PKT_STATUS_BAD_PARAM;
+    }
+    else
+    {
+        pUrcStr = pInputLine;
+        atCoreStatus = Cellular_ATRemoveAllWhiteSpaces( pUrcStr );
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATGetNextTok( &pUrcStr, &pToken );
+        }
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATStrtoi( pToken, 10, &tempValue );
+        }
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            if( ( tempValue >= 0 ) &&
+                ( tempValue < ( int32_t ) CELLULAR_NUM_SOCKET_MAX ) )
+            {
+                sockIndex = ( uint32_t ) tempValue;
+            }
+            else
+            {
+                LogError( ( "Error processing in Socket index. token %s", pToken ) );
+                atCoreStatus = CELLULAR_AT_ERROR;
+            }
+        }
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            pSocketData = _Cellular_GetSocketData( pContext, sockIndex );
+
+            if( pSocketData != NULL )
+            {
+                if (pSocketData->socketProtocol != CELLULAR_SOCKET_PROTOCOL_SSL_OVER_TCP) {
+                    LogError( ( "SSL socket open URC for non-SSL socket. sockIndex %lu", sockIndex ) );
+                }
+
                 atCoreStatus = Cellular_ATGetNextTok( &pUrcStr, &pToken );
 
                 if( atCoreStatus == CELLULAR_AT_SUCCESS )
@@ -369,7 +465,7 @@ static void _informDataReadyToUpperLayer( CellularSocketContext_t * pSocketData 
     }
     else
     {
-        LogError( ( ( "_parseSocketUrc: Data ready callback not set!!" ) ) );
+        LogError( ( "_parseSocketUrc: Data ready callback not set!!" ) );
     }
 }
 
@@ -400,7 +496,7 @@ static CellularPktStatus_t _parseSocketUrcRecv( const CellularContext_t * pConte
             }
             else
             {
-                LogError( ( ( "Error in processing SockIndex. Token %s", pToken ) ) );
+                LogError( ( "Error in processing SockIndex. Token %s", pToken ) );
                 atCoreStatus = CELLULAR_AT_ERROR;
             }
         }
@@ -461,7 +557,7 @@ static CellularPktStatus_t _parseSocketUrcClosed( const CellularContext_t * pCon
         }
         else
         {
-            LogError( ( ( "Error in processing Socket Index. Token %s", pToken ) ) );
+            LogError( ("Error in processing Socket Index. Token %s", pToken ) );
             atCoreStatus = CELLULAR_AT_ERROR;
         }
     }
@@ -539,7 +635,7 @@ static CellularPktStatus_t _parseSocketUrcAct( const CellularContext_t * pContex
         else
         {
             atCoreStatus = CELLULAR_AT_ERROR;
-            LogError( ( ( "Error in processing Context Id. Token %s", pToken ) ) );
+            LogError( ( "Error in processing Context Id. Token %s", pToken ) );
         }
     }
 
@@ -668,6 +764,71 @@ static void _Cellular_ProcessSocketurc( CellularContext_t * pContext,
 
 /*-----------------------------------------------------------*/
 
+static void _Cellular_ProcessSSLSocketurc( CellularContext_t * pContext,
+                                           char * pInputLine )
+{
+    char * pUrcStr = NULL, * pToken = NULL;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    CellularATError_t atCoreStatus = CELLULAR_AT_SUCCESS;
+
+    if( pContext == NULL )
+    {
+        pktStatus = CELLULAR_PKT_STATUS_INVALID_HANDLE;
+    }
+    else if( pInputLine == NULL )
+    {
+        pktStatus = CELLULAR_PKT_STATUS_BAD_PARAM;
+    }
+    else
+    {
+        pUrcStr = pInputLine;
+        atCoreStatus = Cellular_ATRemoveAllDoubleQuote( pUrcStr );
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATRemoveLeadingWhiteSpaces( &pUrcStr );
+        }
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATGetNextTok( &pUrcStr, &pToken );
+        }
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            /* Check if this is a data receive indication. */
+
+            /* this whole if as a function and return pktstatus
+             * take iotat_getnexttok inside
+             * convert atcore status to pktstatus. */
+            if( strstr( pToken, "recv" ) != NULL )  // TODO (MV): Why is this comparison different?
+            {
+                pktStatus = _parseSocketUrcRecv( pContext, pUrcStr );
+            }
+            else if( strcmp( pToken, "closed" ) == 0 )
+            {
+                pktStatus = _parseSocketUrcClosed( pContext, pUrcStr );
+            }
+            else
+            {
+                /* Empty else MISRA 15.7 */
+            }
+        }
+
+        if( atCoreStatus != CELLULAR_AT_SUCCESS )
+        {
+            pktStatus = _Cellular_TranslateAtCoreStatus( atCoreStatus );
+        }
+    }
+
+    if( pktStatus != CELLULAR_PKT_STATUS_OK )
+    {
+        LogDebug( ( "Socketurc Parse failure" ) );
+    }
+}
+
+/*-----------------------------------------------------------*/
+
 /* Cellular common prototype. */
 /* coverity[misra_c_2012_rule_8_13_violation] */
 static void _Cellular_ProcessSimstat( CellularContext_t * pContext,
@@ -695,7 +856,7 @@ static void _Cellular_ProcessPowerDown( CellularContext_t * pContext,
 
     if( pContext == NULL )
     {
-        LogError( ( ( "_Cellular_ProcessPowerDown: Context not set" ) ) );
+        LogError( ( "_Cellular_ProcessPowerDown: Context not set" ) );
     }
     else
     {
@@ -706,6 +867,7 @@ static void _Cellular_ProcessPowerDown( CellularContext_t * pContext,
 
 /*-----------------------------------------------------------*/
 
+// TODO (MV): Is this still needed?
 /* Cellular common prototype. */
 /* coverity[misra_c_2012_rule_8_13_violation] */
 static void _Cellular_ProcessPsmPowerDown( CellularContext_t * pContext,
@@ -716,7 +878,7 @@ static void _Cellular_ProcessPsmPowerDown( CellularContext_t * pContext,
 
     if( pContext == NULL )
     {
-        LogError( ( ( "_Cellular_ProcessPowerDown: Context not set" ) ) );
+        LogError( ( "_Cellular_ProcessPowerDown: Context not set" ) );
     }
     else
     {
@@ -762,7 +924,7 @@ CellularPktStatus_t _Cellular_ParseSimstat( char * pInputStr,
     if( ( pInputStr == NULL ) || ( strlen( pInputStr ) == 0U ) ||
         ( strlen( pInputStr ) < 2U ) || ( pSimState == NULL ) )
     {
-        LogError( ( ( "_Cellular_ProcessQsimstat Input data is invalid %s", pInputStr ) ) );
+        LogError( ( "_Cellular_ProcessQsimstat Input data is invalid %s", pInputStr ) );
         pktStatus = CELLULAR_PKT_STATUS_BAD_PARAM;
     }
     else
@@ -794,7 +956,7 @@ CellularPktStatus_t _Cellular_ParseSimstat( char * pInputStr,
             }
             else
             {
-                LogError( ( ( "Error in processing SIM state. token %s", pToken ) ) );
+                LogError( ( "Error in processing SIM state. token %s", pToken ) );
                 atCoreStatus = CELLULAR_AT_ERROR;
             }
         }

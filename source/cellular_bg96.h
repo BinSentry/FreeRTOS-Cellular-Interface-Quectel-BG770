@@ -43,6 +43,12 @@
 /* AT Command timeout for Socket connection */
 #define SOCKET_CONNECT_PACKET_REQ_TIMEOUT_MS       ( 150000UL )
 
+/* SSL negotiation maximum time (configurable) */
+#define SSL_NEGOTIATION_MAX_TIMEOUT_MS             ( 300000UL )
+
+/* AT Command timeout for SSL Socket connection */
+#define SSL_SOCKET_CONNECT_PACKET_REQ_TIMEOUT_MS   ( SOCKET_CONNECT_PACKET_REQ_TIMEOUT_MS + SSL_NEGOTIATION_MAX_TIMEOUT_MS )
+
 #define PACKET_REQ_TIMEOUT_MS                      ( 5000UL )
 
 /* AT Command timeout for Socket disconnection */
