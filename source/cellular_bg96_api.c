@@ -3479,7 +3479,6 @@ CellularError_t Cellular_DeleteFileOnModem( CellularHandle_t cellularHandle,
                                             const char * pcFilename )
 {
     CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
-    uint8_t i = 0;
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
     char cmdBuf[ CELLULAR_AT_CMD_MAX_SIZE ] = { '\0' };
@@ -3722,3 +3721,884 @@ CellularError_t Cellular_GetModemFileCRC32( CellularHandle_t cellularHandle,
 }
 
 /*-----------------------------------------------------------*/
+
+static bool _tryTranslateSSLVersionEnumToBG770SSLVersionValue(
+        const CellularSSLVersion_t sslVersion,
+        int *const out_sslVersionValue)
+{
+    if (out_sslVersionValue == NULL) {
+        return false;
+    }
+
+    bool retVal = false;
+    switch (sslVersion) {
+        case CELLULAR_SSL_VERSION_SSL_3_0:
+            *out_sslVersionValue = 0;
+            retVal = true;
+            break;
+        case CELLULAR_SSL_VERSION_TLS_1_0:
+            *out_sslVersionValue = 1;
+            retVal = true;
+            break;
+        case CELLULAR_SSL_VERSION_TLS_1_1:
+            *out_sslVersionValue = 2;
+            retVal = true;
+            break;
+        case CELLULAR_SSL_VERSION_TLS_1_2:
+            *out_sslVersionValue = 3;
+            retVal = true;
+            break;
+        case CELLULAR_SSL_VERSION_ALL:
+            *out_sslVersionValue = 4;
+            retVal = true;
+            break;
+        // intentionally no default case to cause compile error if not handled
+    }
+
+    return retVal;
+}
+
+#define CIPHER_SUITE_TLS_RSA_WITH_AES_256_CBC_SHA            0X0035  // TLS_RSA_WITH_AES_256_CBC_SHA
+#define CIPHER_SUITE_TLS_RSA_WITH_AES_128_CBC_SHA            0X002F  // TLS_RSA_WITH_AES_256_CBC_SHA
+#define CIPHER_SUITE_TLS_RSA_WITH_RC4_128_SHA                0X0005  // TLS_RSA_WITH_RC4_128_SHA
+#define CIPHER_SUITE_TLS_RSA_WITH_RC4_128_MD5                0X0004  // TLS_RSA_WITH_RC4_128_MD5
+#define CIPHER_SUITE_TLS_RSA_WITH_3DES_EDE_CBC_SHA           0X000A  // TLS_RSA_WITH_3DES_EDE_CBC_SHA
+#define CIPHER_SUITE_TLS_RSA_WITH_AES_256_CBC_SHA256         0X003D  // TLS_RSA_WITH_AES_256_CBC_SHA256
+#define CIPHER_SUITE_TLS_ECDH_ECDSA_WITH_RC4_128_SHA         0XC002  // TLS_ECDH_ECDSA_WITH_RC4_128_SHA
+#define CIPHER_SUITE_TLS_ECDH_ECDSA_WITH_3DES_EDE_CBC_SHA    0XC003  // TLS_ECDH_ECDSA_WITH_3DES_EDE_CBC_SHA
+#define CIPHER_SUITE_TLS_ECDH_ECDSA_WITH_AES_128_CBC_SHA     0XC004  // TLS_ECDH_ECDSA_WITH_AES_128_CBC_SHA
+#define CIPHER_SUITE_TLS_ECDH_ECDSA_WITH_AES_256_CBC_SHA     0XC005  // TLS_ECDH_ECDSA_WITH_AES_256_CBC_SHA
+#define CIPHER_SUITE_TLS_ECDHE_ECDSA_WITH_RC4_128_SHA        0XC007  // TLS_ECDHE_ECDSA_WITH_RC4_128_SHA
+#define CIPHER_SUITE_TLS_ECDHE_ECDSA_WITH_3DES_EDE_CBC_SHA   0XC008  // TLS_ECDHE_ECDSA_WITH_3DES_EDE_CBC_SHA
+#define CIPHER_SUITE_TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA    0XC009  // TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA
+#define CIPHER_SUITE_TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA    0XC00A  // TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA
+#define CIPHER_SUITE_TLS_ECDHE_RSA_WITH_RC4_128_SHA          0XC011  // TLS_ECDHE_RSA_WITH_RC4_128_SHA
+#define CIPHER_SUITE_TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA     0XC012  // TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA
+#define CIPHER_SUITE_TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA      0XC013  // TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA
+#define CIPHER_SUITE_TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA      0XC014  // TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA
+#define CIPHER_SUITE_TLS_ECDH_RSA_WITH_RC4_128_SHA           0XC00C  // TLS_ECDH_RSA_WITH_RC4_128_SHA
+#define CIPHER_SUITE_TLS_ECDH_RSA_WITH_3DES_EDE_CBC_SHA      0XC00D  // TLS_ECDH_RSA_WITH_3DES_EDE_CBC_SHA
+#define CIPHER_SUITE_TLS_ECDH_RSA_WITH_AES_128_CBC_SHA       0XC00E  // TLS_ECDH_RSA_WITH_AES_128_CBC_SHA
+#define CIPHER_SUITE_TLS_ECDH_RSA_WITH_AES_256_CBC_SHA       0XC00F  // TLS_ECDH_RSA_WITH_AES_256_CBC_SHA
+#define CIPHER_SUITE_TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256 0XC023  // TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256
+#define CIPHER_SUITE_TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384 0XC024  // TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384
+#define CIPHER_SUITE_TLS_ECDH_ECDSA_WITH_AES_128_CBC_SHA256  0XC025  // TLS_ECDH_ECDSA_WITH_AES_128_CBC_SHA256
+#define CIPHER_SUITE_TLS_ECDH_ECDSA_WITH_AES_256_CBC_SHA384  0XC026  // TLS_ECDH_ECDSA_WITH_AES_256_CBC_SHA384
+#define CIPHER_SUITE_TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256   0XC027  // TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256
+#define CIPHER_SUITE_TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384   0XC028  // TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384
+#define CIPHER_SUITE_TLS_ECDH_RSA_WITH_AES_128_CBC_SHA256    0XC029  // TLS_ECDH_RSA_WITH_AES_128_CBC_SHA256
+#define CIPHER_SUITE_TLS_ECDH_RSA_WITH_AES_256_CBC_SHA384    0XC02A  // TLS_ECDH_RSA_WITH_AES_256_CBC_SHA384
+#define CIPHER_SUITE_TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256 0XC02B  // TLS-ECDHE-ECDSA-WITH-AES-128-GCM-SHA256
+#define CIPHER_SUITE_TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256   0XC02F  // TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
+#define CIPHER_SUITE_TLS_PSK_WITH_AES_128_CCM_8              0XC0A8  // TLS_PSK_WITH_AES_128_CCM_8
+#define CIPHER_SUITE_TLS_PSK_WITH_AES_128_CBC_SHA256         0X00AE  // TLS_PSK_WITH_AES_128_CBC_SHA256
+#define CIPHER_SUITE_ALL                                     0XFFFF  // Support all cipher suites
+
+static const uint32_t _sslCipherMapping[] = {
+        CIPHER_SUITE_TLS_RSA_WITH_AES_256_CBC_SHA,
+        CIPHER_SUITE_TLS_RSA_WITH_AES_128_CBC_SHA,
+        CIPHER_SUITE_TLS_RSA_WITH_RC4_128_SHA,
+        CIPHER_SUITE_TLS_RSA_WITH_RC4_128_MD5,
+        CIPHER_SUITE_TLS_RSA_WITH_3DES_EDE_CBC_SHA,
+        CIPHER_SUITE_TLS_RSA_WITH_AES_256_CBC_SHA256,
+        CIPHER_SUITE_TLS_ECDH_ECDSA_WITH_RC4_128_SHA,
+        CIPHER_SUITE_TLS_ECDH_ECDSA_WITH_3DES_EDE_CBC_SHA,
+        CIPHER_SUITE_TLS_ECDH_ECDSA_WITH_AES_128_CBC_SHA,
+        CIPHER_SUITE_TLS_ECDH_ECDSA_WITH_AES_256_CBC_SHA,
+        CIPHER_SUITE_TLS_ECDHE_ECDSA_WITH_RC4_128_SHA,
+        CIPHER_SUITE_TLS_ECDHE_ECDSA_WITH_3DES_EDE_CBC_SHA,
+        CIPHER_SUITE_TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA,
+        CIPHER_SUITE_TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA,
+        CIPHER_SUITE_TLS_ECDHE_RSA_WITH_RC4_128_SHA,
+        CIPHER_SUITE_TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA,
+        CIPHER_SUITE_TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,
+        CIPHER_SUITE_TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,
+        CIPHER_SUITE_TLS_ECDH_RSA_WITH_RC4_128_SHA,
+        CIPHER_SUITE_TLS_ECDH_RSA_WITH_3DES_EDE_CBC_SHA,
+        CIPHER_SUITE_TLS_ECDH_RSA_WITH_AES_128_CBC_SHA,
+        CIPHER_SUITE_TLS_ECDH_RSA_WITH_AES_256_CBC_SHA,
+        CIPHER_SUITE_TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256,
+        CIPHER_SUITE_TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384,
+        CIPHER_SUITE_TLS_ECDH_ECDSA_WITH_AES_128_CBC_SHA256,
+        CIPHER_SUITE_TLS_ECDH_ECDSA_WITH_AES_256_CBC_SHA384,
+        CIPHER_SUITE_TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256,
+        CIPHER_SUITE_TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384,
+        CIPHER_SUITE_TLS_ECDH_RSA_WITH_AES_128_CBC_SHA256,
+        CIPHER_SUITE_TLS_ECDH_RSA_WITH_AES_256_CBC_SHA384,
+        CIPHER_SUITE_TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+        CIPHER_SUITE_TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+        CIPHER_SUITE_TLS_PSK_WITH_AES_128_CCM_8,
+        CIPHER_SUITE_TLS_PSK_WITH_AES_128_CBC_SHA256
+};
+static const size_t SSL_CIPHER_MAPPING_LENGTH = sizeof( _sslCipherMapping ) / sizeof( _sslCipherMapping[ 0 ] );
+
+static bool _tryTranslateSSLCipherSuiteBitmaskToBG770SSLCipherSuites(
+        const CellularSSLCipherSuite_t sslCipherSuites,
+        uint32_t *const out_bg770CipherSuites)
+{
+    if (out_bg770CipherSuites == NULL) {
+        return false;
+    }
+
+    bool retVal = false;
+    uint32_t bg770CipherSuite = 0;
+    if (sslCipherSuites == CELLULAR_SSL_CIPHER_SUITE_SUPPORT_ALL)
+    {
+        bg770CipherSuite = CIPHER_SUITE_ALL;
+        retVal = true;
+    } else
+    {
+        for (unsigned int i = 0; i < sizeof(CellularSSLCipherSuite_t) * 8; i++)
+        {
+            uint64_t curBitMask = (1ULL << i);
+            if ((sslCipherSuites & curBitMask) != 0)
+            {
+                if (bg770CipherSuite == 0) {   // no cipher assigned yet
+                    if (i < SSL_CIPHER_MAPPING_LENGTH) {
+                        bg770CipherSuite = _sslCipherMapping[i];
+                        LogDebug( ( "BG770 SSL cipher suite 0X%lX set", bg770CipherSuite ) );
+                        retVal = true;
+                    } else {
+                        LogError( ( "BG770 does not support selected cipher suite (0X%llX)", curBitMask ) );
+                        retVal = false;
+                    }
+                } else {
+                    LogError( ( "BG770 does not support multiple cipher suites, cipher 0X%lX already set", bg770CipherSuite ) );
+                    retVal = false;
+                }
+            }
+        }
+    }
+
+    *out_bg770CipherSuites = bg770CipherSuite;
+    return retVal;
+}
+
+static bool _tryTranslateSSLAuthModeEnumToBG770SSLAuthModeValue(
+        const CellularSSLAuthMode_t sslAuthMode,
+        int *const out_sslAuthModeValue)
+{
+    if (out_sslAuthModeValue == NULL) {
+        return false;
+    }
+
+    bool retVal = false;
+    switch (sslAuthMode) {
+        case CELLULAR_SSL_AUTH_MODE_NONE:
+            *out_sslAuthModeValue = 0;
+            retVal = true;
+            break;
+        case CELLULAR_SSL_AUTH_MODE_SERVER:
+            *out_sslAuthModeValue = 1;
+            retVal = true;
+            break;
+        case CELLULAR_SSL_AUTH_MODE_SERVER_AND_CLIENT:
+            *out_sslAuthModeValue = 2;
+            retVal = true;
+            break;
+        // intentionally no default case to cause compile error if not handled
+    }
+
+    return retVal;
+}
+
+static bool _tryTranslateSSLSessionResumptionEnumToBG770SSLSessionResumptionValue(
+        const CellularSSLSessionResumption_t sslSessionResumption,
+        int *const out_sslSessionResumptionValue)
+{
+    if (out_sslSessionResumptionValue == NULL) {
+        return false;
+    }
+
+    bool retVal = false;
+    switch (sslSessionResumption) {
+        case CELLULAR_SSL_SESSION_RESUME_DISABLE:
+            *out_sslSessionResumptionValue = 0;
+            retVal = true;
+            break;
+        case CELLULAR_SSL_SESSION_RESUME_ENABLE:
+            *out_sslSessionResumptionValue = 1;
+            retVal = true;
+            break;
+        // intentionally no default case to cause compile error if not handled
+    }
+
+    return retVal;
+}
+
+static bool _tryTranslateSSLSNIEnumToBG770SSLSNIValue(
+        const CellularSSLSNI_t sslSNI,
+        int *const out_sslSNIValue)
+{
+    if (out_sslSNIValue == NULL) {
+        return false;
+    }
+
+    bool retVal = false;
+    switch (sslSNI) {
+        case CELLULAR_SSL_SNI_DISABLE:
+            *out_sslSNIValue = 0;
+            retVal = true;
+            break;
+        case CELLULAR_SSL_SNI_ENABLE:
+            *out_sslSNIValue = 1;
+            retVal = true;
+            break;
+        // intentionally no default case to cause compile error if not handled
+    }
+
+    return retVal;
+}
+
+static bool _tryTranslateSSLCheckHostEnumToBG770SSLCheckHostValue(
+        const CellularSSLCheckHost_t sslCheckHost,
+        int *const out_sslCheckHost)
+{
+    if (out_sslCheckHost == NULL) {
+        return false;
+    }
+
+    bool retVal = false;
+    switch (sslCheckHost) {
+        case CELLULAR_SSL_CHECK_HOST_DISABLE:
+            *out_sslCheckHost = 0;
+            retVal = true;
+            break;
+        case CELLULAR_SSL_CHECK_HOST_ENABLE:
+            *out_sslCheckHost = 1;
+            retVal = true;
+            break;
+        // intentionally no default case to cause compile error if not handled
+    }
+
+    return retVal;
+}
+
+static bool _tryTranslateSSLIgnoreLocaltimeEnumToBG770SSLIgnoreLocaltimeValue(
+        const CellularSSLIgnoreLocaltime_t sslIgnoreLocaltime,
+        int *const out_sslIgnoreLocaltime)
+{
+    if (out_sslIgnoreLocaltime == NULL) {
+        return false;
+    }
+
+    bool retVal = false;
+    switch (sslIgnoreLocaltime) {
+        case CELLULAR_SSL_IGNORE_LOCALTIME_OFF:
+            *out_sslIgnoreLocaltime = 0;
+            retVal = true;
+            break;
+        case CELLULAR_SSL_IGNORE_LOCALTIME_ON:
+            *out_sslIgnoreLocaltime = 1;
+            retVal = true;
+            break;
+        // intentionally no default case to cause compile error if not handled
+    }
+
+    return retVal;
+}
+
+static bool _tryTranslateTLSRenegotiationEnumToBG770TLSRenegotiationValue(
+        const CellularTLSRenegotiation_t tlsRenegotiation,
+        int *const out_tlsRenegotiationValue)
+{
+    if (out_tlsRenegotiationValue == NULL) {
+        return false;
+    }
+
+    bool retVal = false;
+    switch (tlsRenegotiation) {
+        case CELLULAR_TLS_RENEGOTIATION_DISABLE:
+            *out_tlsRenegotiationValue = 0;
+            retVal = true;
+            break;
+        case CELLULAR_TLS_RENEGOTIATION_ENABLE:
+            *out_tlsRenegotiationValue = 1;
+            retVal = true;
+            break;
+        // intentionally no default case to cause compile error if not handled
+    }
+
+    return retVal;
+}
+
+static bool _tryTranslateDTLSEnableEnumToBG770DTLSEnableValue(
+        const CellularDTLSEnable_t dtlsEnable,
+        int *const out_dtlsEnableValue)
+{
+    if (out_dtlsEnableValue == NULL) {
+        return false;
+    }
+
+    bool retVal = false;
+    switch (dtlsEnable) {
+        case CELLULAR_DTLS_DISABLE:
+            *out_dtlsEnableValue = 0;
+            retVal = true;
+            break;
+        case CELLULAR_DTLS_ENABLE:
+            *out_dtlsEnableValue = 1;
+            retVal = true;
+            break;
+        // intentionally no default case to cause compile error if not handled
+    }
+
+    return retVal;
+}
+
+static bool _tryTranslateDTLSVersionEnumToBG770DTLSVersionValue(
+        const CellularDTLSVersion_t dtlsVersion,
+        int *const out_dtlsVersionValue)
+{
+    if (out_dtlsVersionValue == NULL) {
+        return false;
+    }
+
+    bool retVal = false;
+    switch (dtlsVersion) {
+        case CELLULAR_DTLS_VERSION_DTLS_1_0:
+            *out_dtlsVersionValue = 0;
+            retVal = true;
+            break;
+        case CELLULAR_DTLS_VERSION_DTLS_1_2:
+            *out_dtlsVersionValue = 1;
+            retVal = true;
+            break;
+        case CELLULAR_DTLS_VERSION_BOTH:
+            *out_dtlsVersionValue = 2;
+            retVal = true;
+            break;
+        // intentionally no default case to cause compile error if not handled
+    }
+
+    return retVal;
+}
+
+typedef enum SSLConfigSettingType
+{
+    SSL_CONFIG_SETTING_TYPE_NUMERIC_VALUE,
+    SSL_CONFIG_SETTING_TYPE_HEX_FORMAT,
+    SSL_CONFIG_SETTING_TYPE_STRING,
+} SSLConfigSettingType_t;
+
+typedef struct SSLConfigDescription
+{
+    const char * paramDescription;
+    SSLConfigSettingType_t type;
+    union
+    {
+        int numeric;            // use if type == SSL_CONFIG_SETTING_TYPE_NUMERIC_VALUE
+        uint32_t hex;           // use if type == SSL_CONFIG_SETTING_TYPE_HEX_FORMAT
+        const char * string;    // use if type == SSL_CONFIG_SETTING_TYPE_STRING
+    } param;
+} SSLConfigDescription_t;
+
+/* Internal function of Cellular_SocketSetSockOpt to reduce complexity. */
+static CellularError_t _buildSetSSLOptDescription( CellularSSLContextOption_t option,
+                                                   const uint8_t * pOptionValue,
+                                                   uint32_t optionValueLength,
+                                                   SSLConfigDescription_t *const out_sslConfigDescription)
+{
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+
+    if( option == CELLULAR_SSL_CONTEXT_OPTION_SSL_VERSION )
+    {
+        if( optionValueLength == sizeof( CellularSSLVersion_t ) )
+        {
+            /* MISRA Ref 11.3 [Misaligned access] */
+            /* More details at: https://github.com/FreeRTOS/FreeRTOS-Cellular-Interface/blob/main/MISRA.md#rule-113 */
+            /* coverity[misra_c_2012_rule_11_3_violation] */
+            const CellularSSLVersion_t * pSSLVersion = ( const CellularSSLVersion_t * ) pOptionValue;
+            int sslVersionValue = -1;
+            bool success = _tryTranslateSSLVersionEnumToBG770SSLVersionValue(*pSSLVersion, &sslVersionValue);
+            if (success)
+            {
+                *out_sslConfigDescription = (SSLConfigDescription_t){
+                    .paramDescription = "sslversion",
+                    .type = SSL_CONFIG_SETTING_TYPE_NUMERIC_VALUE,
+                    .param = { .numeric = sslVersionValue }
+                };
+            } else {
+                cellularStatus = CELLULAR_INTERNAL_FAILURE;
+            }
+        }
+        else
+        {
+            cellularStatus = CELLULAR_INTERNAL_FAILURE;
+        }
+    }
+    else if( option == CELLULAR_SSL_CONTEXT_OPTION_CIPHER_SUITE )
+    {
+        if( optionValueLength == sizeof( CellularSSLCipherSuite_t ) )
+        {
+            /* MISRA Ref 11.3 [Misaligned access] */
+            /* More details at: https://github.com/FreeRTOS/FreeRTOS-Cellular-Interface/blob/main/MISRA.md#rule-113 */
+            /* coverity[misra_c_2012_rule_11_3_violation] */
+            const CellularSSLCipherSuite_t * pSSLCipherSuite = ( const CellularSSLCipherSuite_t * ) pOptionValue;
+            uint32_t sslCipherSuite = 0;
+            bool success = _tryTranslateSSLCipherSuiteBitmaskToBG770SSLCipherSuites(*pSSLCipherSuite, &sslCipherSuite);
+            if (success)
+            {
+                *out_sslConfigDescription = (SSLConfigDescription_t){
+                        .paramDescription = "ciphersuite",
+                        .type = SSL_CONFIG_SETTING_TYPE_HEX_FORMAT,
+                        .param = { .hex = sslCipherSuite }
+                };
+            } else {
+                cellularStatus = CELLULAR_INTERNAL_FAILURE;
+            }
+        }
+        else
+        {
+            cellularStatus = CELLULAR_INTERNAL_FAILURE;
+        }
+    }
+    else if( option == CELLULAR_SSL_CONTEXT_OPTION_CA_CERT )
+    {
+        if( optionValueLength == sizeof( const char * ) )
+        {
+            /* MISRA Ref 11.3 [Misaligned access] */
+            /* More details at: https://github.com/FreeRTOS/FreeRTOS-Cellular-Interface/blob/main/MISRA.md#rule-113 */
+            /* coverity[misra_c_2012_rule_11_3_violation] */
+            *out_sslConfigDescription = (SSLConfigDescription_t){
+                    .paramDescription = "cacert",
+                    .type = SSL_CONFIG_SETTING_TYPE_STRING,
+                    .param = { .string = ( const char * ) pOptionValue }
+                };
+        }
+        else
+        {
+            cellularStatus = CELLULAR_INTERNAL_FAILURE;
+        }
+    }
+    else if( option == CELLULAR_SSL_CONTEXT_OPTION_CLIENT_CERT )
+    {
+        if( optionValueLength == sizeof( const char * ) )
+        {
+            /* MISRA Ref 11.3 [Misaligned access] */
+            /* More details at: https://github.com/FreeRTOS/FreeRTOS-Cellular-Interface/blob/main/MISRA.md#rule-113 */
+            /* coverity[misra_c_2012_rule_11_3_violation] */
+            *out_sslConfigDescription = (SSLConfigDescription_t){
+                    .paramDescription = "clientcert",
+                    .type = SSL_CONFIG_SETTING_TYPE_STRING,
+                    .param = { .string = ( const char * ) pOptionValue }
+            };
+        }
+        else
+        {
+            cellularStatus = CELLULAR_INTERNAL_FAILURE;
+        }
+    }
+    else if( option == CELLULAR_SSL_CONTEXT_OPTION_CLIENT_KEY )
+    {
+        if( optionValueLength == sizeof( const char * ) )
+        {
+            /* MISRA Ref 11.3 [Misaligned access] */
+            /* More details at: https://github.com/FreeRTOS/FreeRTOS-Cellular-Interface/blob/main/MISRA.md#rule-113 */
+            /* coverity[misra_c_2012_rule_11_3_violation] */
+            *out_sslConfigDescription = (SSLConfigDescription_t){
+                    .paramDescription = "clientkey",
+                    .type = SSL_CONFIG_SETTING_TYPE_STRING,
+                    .param = { .string = ( const char * ) pOptionValue }
+            };
+        }
+        else
+        {
+            cellularStatus = CELLULAR_INTERNAL_FAILURE;
+        }
+    }
+    else if( option == CELLULAR_SSL_CONTEXT_OPTION_AUTH_MODE )
+    {
+        if( optionValueLength == sizeof( CellularSSLAuthMode_t ) )
+        {
+            /* MISRA Ref 11.3 [Misaligned access] */
+            /* More details at: https://github.com/FreeRTOS/FreeRTOS-Cellular-Interface/blob/main/MISRA.md#rule-113 */
+            /* coverity[misra_c_2012_rule_11_3_violation] */
+            const CellularSSLAuthMode_t * pSSLAuthMode = ( const CellularSSLAuthMode_t * ) pOptionValue;
+            int sslAuthMode = -1;
+            bool success = _tryTranslateSSLAuthModeEnumToBG770SSLAuthModeValue(*pSSLAuthMode, &sslAuthMode);
+            if (success)
+            {
+                *out_sslConfigDescription = (SSLConfigDescription_t){
+                        .paramDescription = "seclevel",
+                        .type = SSL_CONFIG_SETTING_TYPE_NUMERIC_VALUE,
+                        .param = { .numeric = sslAuthMode }
+                };
+            } else {
+                cellularStatus = CELLULAR_INTERNAL_FAILURE;
+            }
+        }
+        else
+        {
+            cellularStatus = CELLULAR_INTERNAL_FAILURE;
+        }
+    }
+    else if( option == CELLULAR_SSL_CONTEXT_OPTION_SSL_RESUMPTION )
+    {
+        if( optionValueLength == sizeof( CellularSSLSessionResumption_t ) )
+        {
+            /* MISRA Ref 11.3 [Misaligned access] */
+            /* More details at: https://github.com/FreeRTOS/FreeRTOS-Cellular-Interface/blob/main/MISRA.md#rule-113 */
+            /* coverity[misra_c_2012_rule_11_3_violation] */
+            const CellularSSLSessionResumption_t * pSSLSessionResumption = ( const CellularSSLSessionResumption_t * ) pOptionValue;
+            int sslSessionResumption = -1;
+            bool success = _tryTranslateSSLSessionResumptionEnumToBG770SSLSessionResumptionValue(*pSSLSessionResumption, &sslSessionResumption);
+            if (success)
+            {
+                *out_sslConfigDescription = (SSLConfigDescription_t){
+                        .paramDescription = "session",
+                        .type = SSL_CONFIG_SETTING_TYPE_NUMERIC_VALUE,
+                        .param = { .numeric = sslSessionResumption }
+                };
+            } else {
+                cellularStatus = CELLULAR_INTERNAL_FAILURE;
+            }
+        }
+        else
+        {
+            cellularStatus = CELLULAR_INTERNAL_FAILURE;
+        }
+    }
+    else if( option == CELLULAR_SSL_CONTEXT_OPTION_SNI )
+    {
+        if( optionValueLength == sizeof( CellularSSLSNI_t ) )
+        {
+            /* MISRA Ref 11.3 [Misaligned access] */
+            /* More details at: https://github.com/FreeRTOS/FreeRTOS-Cellular-Interface/blob/main/MISRA.md#rule-113 */
+            /* coverity[misra_c_2012_rule_11_3_violation] */
+            const CellularSSLSNI_t * pSSLSNI = ( const CellularSSLSNI_t * ) pOptionValue;
+            int sslSNI = -1;
+            bool success = _tryTranslateSSLSNIEnumToBG770SSLSNIValue(*pSSLSNI, &sslSNI);
+            if (success)
+            {
+                *out_sslConfigDescription = (SSLConfigDescription_t){
+                        .paramDescription = "sni",
+                        .type = SSL_CONFIG_SETTING_TYPE_NUMERIC_VALUE,
+                        .param = { .numeric = sslSNI }
+                };
+            } else {
+                cellularStatus = CELLULAR_INTERNAL_FAILURE;
+            }
+        }
+        else
+        {
+            cellularStatus = CELLULAR_INTERNAL_FAILURE;
+        }
+    }
+    else if( option == CELLULAR_SSL_CONTEXT_OPTION_CHECK_HOST )
+    {
+        if( optionValueLength == sizeof( CellularSSLCheckHost_t ) )
+        {
+            /* MISRA Ref 11.3 [Misaligned access] */
+            /* More details at: https://github.com/FreeRTOS/FreeRTOS-Cellular-Interface/blob/main/MISRA.md#rule-113 */
+            /* coverity[misra_c_2012_rule_11_3_violation] */
+            const CellularSSLCheckHost_t * pSSLCheckHost = ( const CellularSSLCheckHost_t * ) pOptionValue;
+            int sslCheckHost = -1;
+            bool success = _tryTranslateSSLCheckHostEnumToBG770SSLCheckHostValue(*pSSLCheckHost, &sslCheckHost);
+            if (success)
+            {
+                *out_sslConfigDescription = (SSLConfigDescription_t){
+                        .paramDescription = "checkhost",
+                        .type = SSL_CONFIG_SETTING_TYPE_NUMERIC_VALUE,
+                        .param = { .numeric = sslCheckHost }
+                };
+            } else {
+                cellularStatus = CELLULAR_INTERNAL_FAILURE;
+            }
+        }
+        else
+        {
+            cellularStatus = CELLULAR_INTERNAL_FAILURE;
+        }
+    }
+    else if( option == CELLULAR_SSL_CONTEXT_OPTION_IGNORE_LOCAL_TIME )
+    {
+        if( optionValueLength == sizeof( CellularSSLIgnoreLocaltime_t ) )
+        {
+            /* MISRA Ref 11.3 [Misaligned access] */
+            /* More details at: https://github.com/FreeRTOS/FreeRTOS-Cellular-Interface/blob/main/MISRA.md#rule-113 */
+            /* coverity[misra_c_2012_rule_11_3_violation] */
+            const CellularSSLIgnoreLocaltime_t * pSSLIgnoreLocaltime = ( const CellularSSLIgnoreLocaltime_t * ) pOptionValue;
+            int sslIgnoreLocaltime = -1;
+            bool success = _tryTranslateSSLIgnoreLocaltimeEnumToBG770SSLIgnoreLocaltimeValue(*pSSLIgnoreLocaltime, &sslIgnoreLocaltime);
+            if (success)
+            {
+                *out_sslConfigDescription = (SSLConfigDescription_t){
+                        .paramDescription = "ignorelocaltime",
+                        .type = SSL_CONFIG_SETTING_TYPE_NUMERIC_VALUE,
+                        .param = { .numeric = sslIgnoreLocaltime }
+                };
+            } else {
+                cellularStatus = CELLULAR_INTERNAL_FAILURE;
+            }
+        }
+        else
+        {
+            cellularStatus = CELLULAR_INTERNAL_FAILURE;
+        }
+    }
+    else if( option == CELLULAR_SSL_CONTEXT_OPTION_NEGOTIATE_TIME )
+    {
+        if( optionValueLength == sizeof( CellularSSLNegotiateTime_t ) )
+        {
+            /* MISRA Ref 11.3 [Misaligned access] */
+            /* More details at: https://github.com/FreeRTOS/FreeRTOS-Cellular-Interface/blob/main/MISRA.md#rule-113 */
+            /* coverity[misra_c_2012_rule_11_3_violation] */
+            const CellularSSLNegotiateTime_t * pSSLNegotiateTime = ( const CellularSSLNegotiateTime_t * ) pOptionValue;
+            static const CellularSSLNegotiateTime_t SSL_NEGOTIATE_TIME_MIN_sec = 10;
+            static const CellularSSLNegotiateTime_t SSL_NEGOTIATE_TIME_MAX_sec = 300;
+            CellularSSLNegotiateTime_t sslNegotiateTime = *pSSLNegotiateTime;
+            if( ( sslNegotiateTime >= SSL_NEGOTIATE_TIME_MIN_sec ) && ( sslNegotiateTime <= SSL_NEGOTIATE_TIME_MAX_sec ) )
+            {
+                *out_sslConfigDescription = (SSLConfigDescription_t){
+                        .paramDescription = "negotiatetime",
+                        .type = SSL_CONFIG_SETTING_TYPE_NUMERIC_VALUE,
+                        .param = { .numeric = ( int ) sslNegotiateTime }
+                };
+            } else {
+                cellularStatus = CELLULAR_INTERNAL_FAILURE;
+            }
+        }
+        else
+        {
+            cellularStatus = CELLULAR_INTERNAL_FAILURE;
+        }
+    }
+    else if( option == CELLULAR_SSL_CONTEXT_OPTION_TLS_RENEGOTIATION )
+    {
+        if( optionValueLength == sizeof( CellularTLSRenegotiation_t ) )
+        {
+            /* MISRA Ref 11.3 [Misaligned access] */
+            /* More details at: https://github.com/FreeRTOS/FreeRTOS-Cellular-Interface/blob/main/MISRA.md#rule-113 */
+            /* coverity[misra_c_2012_rule_11_3_violation] */
+            const CellularTLSRenegotiation_t * pTLSRenegotiation = ( const CellularTLSRenegotiation_t * ) pOptionValue;
+            int tlsRenegotiation = -1;
+            bool success = _tryTranslateTLSRenegotiationEnumToBG770TLSRenegotiationValue(*pTLSRenegotiation, &tlsRenegotiation);
+            if (success)
+            {
+                *out_sslConfigDescription = (SSLConfigDescription_t){
+                        .paramDescription = "renegotiation",
+                        .type = SSL_CONFIG_SETTING_TYPE_NUMERIC_VALUE,
+                        .param = { .numeric = tlsRenegotiation }
+                };
+            } else {
+                cellularStatus = CELLULAR_INTERNAL_FAILURE;
+            }
+        }
+        else
+        {
+            cellularStatus = CELLULAR_INTERNAL_FAILURE;
+        }
+    }
+    else if( option == CELLULAR_SSL_CONTEXT_OPTION_DTLS_ENABLE )
+    {
+        if( optionValueLength == sizeof( CellularDTLSEnable_t ) )
+        {
+            /* MISRA Ref 11.3 [Misaligned access] */
+            /* More details at: https://github.com/FreeRTOS/FreeRTOS-Cellular-Interface/blob/main/MISRA.md#rule-113 */
+            /* coverity[misra_c_2012_rule_11_3_violation] */
+            const CellularDTLSEnable_t * pDTLSEnable = ( const CellularDTLSEnable_t * ) pOptionValue;
+            int dtlsEnable = -1;
+            bool success = _tryTranslateDTLSEnableEnumToBG770DTLSEnableValue(*pDTLSEnable, &dtlsEnable);
+            if (success)
+            {
+                *out_sslConfigDescription = (SSLConfigDescription_t){
+                        .paramDescription = "dtls",
+                        .type = SSL_CONFIG_SETTING_TYPE_NUMERIC_VALUE,
+                        .param = { .numeric = dtlsEnable }
+                };
+            } else {
+                cellularStatus = CELLULAR_INTERNAL_FAILURE;
+            }
+        }
+        else
+        {
+            cellularStatus = CELLULAR_INTERNAL_FAILURE;
+        }
+    }
+    else if( option == CELLULAR_SSL_CONTEXT_OPTION_DTLS_VERSION )
+    {
+        if( optionValueLength == sizeof( CellularDTLSVersion_t ) )
+        {
+            /* MISRA Ref 11.3 [Misaligned access] */
+            /* More details at: https://github.com/FreeRTOS/FreeRTOS-Cellular-Interface/blob/main/MISRA.md#rule-113 */
+            /* coverity[misra_c_2012_rule_11_3_violation] */
+            const CellularDTLSVersion_t * pDTLSVersion = ( const CellularDTLSVersion_t * ) pOptionValue;
+            int dtlsVersion = -1;
+            bool success = _tryTranslateDTLSVersionEnumToBG770DTLSVersionValue(*pDTLSVersion, &dtlsVersion);
+            if (success)
+            {
+                *out_sslConfigDescription = (SSLConfigDescription_t){
+                        .paramDescription = "dtlsversion",
+                        .type = SSL_CONFIG_SETTING_TYPE_NUMERIC_VALUE,
+                        .param = { .numeric = dtlsVersion }
+                };
+            } else {
+                cellularStatus = CELLULAR_INTERNAL_FAILURE;
+            }
+        }
+        else
+        {
+            cellularStatus = CELLULAR_INTERNAL_FAILURE;
+        }
+    }
+    else
+    {
+        LogError( ( "_buildSetSSLOptDescription: SSL option (%d) not supported", option ) );
+        cellularStatus = CELLULAR_UNSUPPORTED;
+    }
+
+    return cellularStatus;
+}
+
+
+static CellularError_t buildSetSSLOption( uint8_t sslContextId,
+                                          char * pCmdBuf, size_t cmdBufLength,
+                                          const SSLConfigDescription_t *const sslConfigDescription )
+{
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+    char sslOptionValueString[ CELLULAR_AT_CMD_MAX_SIZE ];
+
+    if( ( pCmdBuf == NULL ) || ( cmdBufLength == 0 ) )
+    {
+        LogError( ( "buildSetSSLOption: Invalid command buffer" ) );
+        cellularStatus = CELLULAR_BAD_PARAMETER;
+    }
+    else if( _Cellular_IsValidSSLContext(sslContextId) != CELLULAR_SUCCESS )
+    {
+        LogError( ( "buildSetSSLOption: Invalid SSL context id" ) );
+        cellularStatus = CELLULAR_BAD_PARAMETER;
+    }
+    else if( sslConfigDescription == NULL )
+    {
+        LogError( ( "buildSetSSLOption: Invalid SSL config description" ) );
+        cellularStatus = CELLULAR_BAD_PARAMETER;
+    }
+
+    if( cellularStatus == CELLULAR_SUCCESS )
+    {
+        static const size_t SSL_OPTION_VALUE_STRING_LENGTH = sizeof( sslOptionValueString );
+        int len = -1;
+        switch (sslConfigDescription->type) {
+            case SSL_CONFIG_SETTING_TYPE_NUMERIC_VALUE:
+                len = snprintf( sslOptionValueString, SSL_OPTION_VALUE_STRING_LENGTH, "%d", sslConfigDescription->param.numeric );
+                break;
+
+            case SSL_CONFIG_SETTING_TYPE_HEX_FORMAT:
+                len = snprintf( sslOptionValueString, SSL_OPTION_VALUE_STRING_LENGTH, "0X%04lX", sslConfigDescription->param.hex );
+                break;
+
+            case SSL_CONFIG_SETTING_TYPE_STRING:
+                len = snprintf( sslOptionValueString, SSL_OPTION_VALUE_STRING_LENGTH, "\"%s\"", sslConfigDescription->param.string );
+                break;
+
+            default:
+                cellularStatus = CELLULAR_INTERNAL_FAILURE;
+                break;
+        }
+
+        if ( ( len <= 0 ) || ( (size_t)len >= SSL_OPTION_VALUE_STRING_LENGTH) )
+        {
+            cellularStatus = CELLULAR_INTERNAL_FAILURE;
+        }
+    }
+
+    if (cellularStatus == CELLULAR_SUCCESS)
+    {
+        /* Form the AT command. */
+        int len = snprintf( pCmdBuf, cmdBufLength,
+                           "%s\"%s\",%d,%s",
+                           "AT+QSSLCFG=",
+                           sslConfigDescription->paramDescription,
+                           sslContextId,
+                           sslOptionValueString );
+        if ( ( len <= 0 ) || ( (size_t)len >= cmdBufLength) )
+        {
+            cellularStatus = CELLULAR_INTERNAL_FAILURE;
+        }
+    }
+
+    return cellularStatus;
+}
+
+static CellularError_t _Cellular_SocketSetSSLOpt( CellularContext_t * pContext,
+                                                  uint8_t sslContextId,
+                                                  CellularSSLContextOption_t option,
+                                                  const uint8_t * pOptionValue,
+                                                  uint32_t optionValueLength )
+{
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    char cmdBuf[ CELLULAR_AT_CMD_MAX_SIZE ] = { '\0' };
+    CellularAtReq_t atReqSSLOpt =
+    {
+        cmdBuf,
+        CELLULAR_AT_NO_RESULT,
+        NULL,
+        NULL,
+        NULL,
+        0,
+    };
+
+    SSLConfigDescription_t sslConfigDescription = { 0 };
+    cellularStatus = _buildSetSSLOptDescription( option, pOptionValue, optionValueLength, &sslConfigDescription );
+    if (cellularStatus != CELLULAR_SUCCESS)
+    {
+        LogError( ( "_Cellular_SocketSetSSLOpt: can't build SSL option description" ) );
+    }
+
+    if( cellularStatus == CELLULAR_SUCCESS )
+    {
+        cellularStatus = buildSetSSLOption( sslContextId, cmdBuf, sizeof( cmdBuf ), &sslConfigDescription );
+        if (cellularStatus != CELLULAR_SUCCESS)
+        {
+            LogError( ( "_Cellular_SocketSetSSLOpt: can't build SSL option command" ) );
+        }
+    }
+
+    if( cellularStatus == CELLULAR_SUCCESS )
+    {
+        pktStatus = _Cellular_AtcmdRequestWithCallback( pContext, atReqSSLOpt );
+
+        if( pktStatus != CELLULAR_PKT_STATUS_OK )
+        {
+            LogError( ( "_Cellular_SocketSetSSLOpt: can't set SSL option, cmdBuf:%s, PktRet: %d", cmdBuf, pktStatus ) );
+            cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
+        }
+    }
+
+    return cellularStatus;
+}
+
+CellularError_t Cellular_SocketSetSSLOpt( CellularHandle_t cellularHandle,
+                                          uint8_t sslContextId,
+                                          CellularSSLContextOption_t option,
+                                          const uint8_t * pOptionValue,
+                                          uint32_t optionValueLength )
+{
+    CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+
+    /* pContext is checked in _Cellular_CheckLibraryStatus function. */
+    cellularStatus = _Cellular_CheckLibraryStatus( pContext );
+
+    if( cellularStatus != CELLULAR_SUCCESS )
+    {
+        LogDebug( ( "_Cellular_CheckLibraryStatus failed" ) );
+    }
+    else if( _Cellular_IsValidSSLContext(sslContextId) != CELLULAR_SUCCESS )
+    {
+        cellularStatus = CELLULAR_INVALID_HANDLE;
+    }
+    else if( ( pOptionValue == NULL ) || ( optionValueLength == 0U ) )
+    {
+        LogError( ( "Cellular_SocketSetSSLOpt: Invalid parameter" ) );
+        cellularStatus = CELLULAR_BAD_PARAMETER;
+    }
+    else
+    {
+        cellularStatus = _Cellular_SocketSetSSLOpt( pContext, sslContextId, option, pOptionValue, optionValueLength );
+    }
+
+    return cellularStatus;
+}
