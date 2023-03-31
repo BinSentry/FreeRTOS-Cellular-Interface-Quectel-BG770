@@ -107,7 +107,7 @@
 #define SSL_SOCKET_DATA_PREFIX_STRING             "+QSSLRECV:"
 #define SSL_SOCKET_DATA_PREFIX_STRING_LENGTH      ( 10U )
 
-#define MAX_QIRD_STRING_PREFIX_STRING            ( 14U )    /* The max data prefix string is "+QIRD: 1500\r\n" */ // TODO (MV): Uses of this need to be changed to also consider SSL version
+#define MAX_QIRD_STRING_PREFIX_STRING            ( 14U )    /* The max data prefix string is "+QIRD: 1500\r\n" */
 #define MAX_QSSLRECV_STRING_PREFIX_STRING        ( 18U )    /* The max data prefix string is "+QSSLRECV: 1500\r\n" */
 
 /*-----------------------------------------------------------*/
@@ -1763,7 +1763,6 @@ static CellularPktStatus_t socketRecvDataPrefix( void * pCallbackContext,
     }
     else
     {
-        // TODO (MV): Need to consider SSL data response here or have a different version of this function for SSL, probably different version of function would be cleanest
         /* Check if the message is a data response. */
         if( strncmp( pLine, SOCKET_DATA_PREFIX_STRING, SOCKET_DATA_PREFIX_STRING_LENGTH ) == 0 )
         {
@@ -2417,16 +2416,16 @@ CellularError_t Cellular_SetPsmSettings( CellularHandle_t cellularHandle,
         /* The return value of snprintf is not used.
          * The max length of the string is fixed and checked offline. */
         /* coverity[misra_c_2012_rule_21_6_violation]. */
-        ( void ) snprintf( cmdBuf, CELLULAR_AT_CMD_MAX_SIZE, "AT+QPSMS=%d,", pPsmSettings->mode );
+        ( void ) snprintf( cmdBuf, CELLULAR_AT_CMD_MAX_SIZE, "AT+QPSMS=%d", pPsmSettings->mode );
         cmdBufLen = strlen( cmdBuf );
-        cmdBufLen = cmdBufLen + appendBinaryPattern( &cmdBuf[ cmdBufLen ], ( CELLULAR_AT_CMD_MAX_SIZE - cmdBufLen ),
-                                                     0, false );    // NOTE: BG770 doesn't support this parameter
-        cmdBufLen = cmdBufLen + appendBinaryPattern( &cmdBuf[ cmdBufLen ], ( CELLULAR_AT_CMD_MAX_SIZE - cmdBufLen ),
-                                                     0, false );    // NOTE: BG770 doesn't support this parameter
-        cmdBufLen = cmdBufLen + appendBinaryPattern( &cmdBuf[ cmdBufLen ], ( CELLULAR_AT_CMD_MAX_SIZE - cmdBufLen ),
-                                                     pPsmSettings->periodicTauValue, false );
-        cmdBufLen = cmdBufLen + appendBinaryPattern( &cmdBuf[ cmdBufLen ], ( CELLULAR_AT_CMD_MAX_SIZE - cmdBufLen ),
-                                                     pPsmSettings->activeTimeValue, true );
+        if (pPsmSettings->periodicTauValue != 0 || pPsmSettings->activeTimeValue != 0) {
+            (void) strcat(cmdBuf, ",");     // TODO (MV): Improve robustness of this
+            cmdBufLen++;
+            cmdBufLen += appendBinaryPattern(&cmdBuf[cmdBufLen], (CELLULAR_AT_CMD_MAX_SIZE - cmdBufLen), 0, false);    // NOTE: BG770 doesn't support this parameter
+            cmdBufLen += appendBinaryPattern(&cmdBuf[cmdBufLen], (CELLULAR_AT_CMD_MAX_SIZE - cmdBufLen), 0, false);    // NOTE: BG770 doesn't support this parameter
+            cmdBufLen += appendBinaryPattern(&cmdBuf[cmdBufLen], (CELLULAR_AT_CMD_MAX_SIZE - cmdBufLen), pPsmSettings->periodicTauValue, false);
+            cmdBufLen += appendBinaryPattern(&cmdBuf[cmdBufLen], (CELLULAR_AT_CMD_MAX_SIZE - cmdBufLen), pPsmSettings->activeTimeValue, true);
+        }
 
         LogDebug( ( "PSM setting: %s ", cmdBuf ) );
 
@@ -4743,6 +4742,110 @@ CellularError_t Cellular_SocketSetSSLOpt( CellularHandle_t cellularHandle,
     else
     {
         cellularStatus = _Cellular_SocketSetSSLOpt( pContext, sslContextId, option, pOptionValue, optionValueLength );
+    }
+
+    return cellularStatus;
+}
+
+/*-----------------------------------------------------------*/
+
+
+/* FreeRTOS Cellular Library types. */
+/* coverity[misra_c_2012_rule_8_13_violation] */
+static CellularPktStatus_t _Cellular_RecvFuncGetSocketLastResultCode( CellularContext_t * pContext,
+                                                                      const CellularATCommandResponse_t * pAtResp,
+                                                                      void * pData,
+                                                                      uint16_t dataLen )
+{
+    char * pInputLine = NULL, * pToken = NULL;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    CellularATError_t atCoreStatus = CELLULAR_AT_SUCCESS;
+    uint32_t * pLastResultCode = NULL;
+
+    if( pContext == NULL )
+    {
+        LogError( ( "Cellular_GetSocketLastResultCode: Invalid context" ) );
+        pktStatus = CELLULAR_PKT_STATUS_FAILURE;
+    }
+    else if( ( pAtResp == NULL ) || ( pAtResp->pItm == NULL ) ||
+             ( pAtResp->pItm->pLine == NULL ) || ( pData == NULL ) || ( dataLen == 0 ) )
+    {
+        LogError( ( "Cellular_GetSocketLastResultCode: Invalid param" ) );
+        pktStatus = CELLULAR_PKT_STATUS_BAD_PARAM;
+    }
+    else
+    {
+        pInputLine = pAtResp->pItm->pLine;
+        pLastResultCode = ( uint32_t * ) pData;
+        atCoreStatus = Cellular_ATRemovePrefix( &pInputLine );
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATRemoveAllWhiteSpaces( pInputLine );
+        }
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATGetNextTok( &pInputLine, &pToken );
+        }
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            uint32_t tempValue = 0;
+            atCoreStatus = Cellular_ATStrtoui( pToken, 10, &tempValue );
+
+            if( atCoreStatus == CELLULAR_AT_SUCCESS )
+            {
+                *pLastResultCode = tempValue;
+                LogDebug( ( "Socket last result code: %lu", *pLastResultCode ) );
+            }
+            else
+            {
+                LogError( ( "Error in processing last result code. Token %s", pToken ) );
+            }
+        }
+
+        pktStatus = _Cellular_TranslateAtCoreStatus( atCoreStatus );
+    }
+
+    return pktStatus;
+}
+
+CellularError_t Cellular_GetSocketLastResultCode( CellularHandle_t cellularHandle,
+                                                  uint32_t * lastResultCode)
+{
+    CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    CellularAtReq_t atReqGetLastResultCode =
+    {
+            "AT+QIGETERROR",
+            CELLULAR_AT_WITH_PREFIX,
+            "+QIGETERROR",
+            _Cellular_RecvFuncGetSocketLastResultCode,
+            lastResultCode,
+            sizeof( *lastResultCode ),
+    };
+
+    cellularStatus = _Cellular_CheckLibraryStatus( pContext );
+
+    if( cellularStatus != CELLULAR_SUCCESS )
+    {
+        LogDebug( ( "_Cellular_CheckLibraryStatus failed" ) );
+    }
+    else if( lastResultCode == NULL )
+    {
+        cellularStatus = CELLULAR_BAD_PARAMETER;
+    }
+    else
+    {
+        pktStatus = _Cellular_AtcmdRequestWithCallback( pContext, atReqGetLastResultCode );
+
+        if( pktStatus != CELLULAR_PKT_STATUS_OK )
+        {
+            LogError( ( "Cellular_GetSocketLastResultCode: couldn't retrieve last result code" ) );
+            cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
+        }
     }
 
     return cellularStatus;

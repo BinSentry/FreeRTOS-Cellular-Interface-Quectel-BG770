@@ -73,10 +73,9 @@ CellularAtParseTokenMap_t CellularUrcHandlerTable[] =
     { "QIOPEN",            _Cellular_ProcessSocketOpen    },
     { "QIURC",             _Cellular_ProcessSocketurc     },
     { "QSIMSTAT",          _Cellular_ProcessSimstat       },
-    { "RDY",               _Cellular_ProcessModemRdy      },
     { "QSSLOPEN",          _Cellular_ProcessSSLSocketOpen },
-    { "QSSLURC",           _Cellular_ProcessSSLSocketurc  }
-    // TODO (MV): Add SSL URC(s)
+    { "QSSLURC",           _Cellular_ProcessSSLSocketurc  },
+    { "RDY",               _Cellular_ProcessModemRdy      }
 };
 
 /* FreeRTOS Cellular Common Library porting interface. */

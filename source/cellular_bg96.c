@@ -40,7 +40,7 @@
 /*-----------------------------------------------------------*/
 
 #define ENABLE_MODULE_UE_RETRY_COUNT       ( 3U )
-#define ENABLE_MODULE_UE_RETRY_TIMEOUT     ( 5000U )
+#define ENABLE_MODULE_UE_RETRY_TIMEOUT     ( 5000U + 500U )
 #define BG770_NWSCANSEQ_CMD_MAX_SIZE       ( 30U ) /* Need at least the length of AT+QCFG="nwscanseq",020301,1\0. */
 
 /*-----------------------------------------------------------*/
@@ -266,6 +266,8 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
 
         if( cellularStatus == CELLULAR_SUCCESS )
         {
+            vTaskDelay(pdMS_TO_TICKS(10));  // short delay
+
             /* Setting URC output port. */
             #if defined( CELLULAR_BG770_URC_PORT_EMUX ) || defined( BG770_URC_PORT_EMUX )
                 atReqGetNoResult.pAtCmd = "AT+QURCCFG=\"urcport\",\"emux\"";
@@ -277,6 +279,8 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
 
         if( cellularStatus == CELLULAR_SUCCESS )
         {
+            vTaskDelay(pdMS_TO_TICKS(10));  // short delay
+
             /* Configure Band configuration to all bands. */
             atReqGetNoResult.pAtCmd = "AT+QCFG=\"band\",f,2000000000f0e189f,200000000090f189f";   // TODO (MV): Make this configurable?
             cellularStatus = sendAtCommandWithRetryTimeout( pContext, &atReqGetNoResult );
@@ -284,6 +288,8 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
 
         if( cellularStatus == CELLULAR_SUCCESS )
         {
+            vTaskDelay(pdMS_TO_TICKS(10));  // short delay
+
             /* Configure RAT(s) to be Searched to LTE. */
             atReqGetNoResult.pAtCmd = "AT+QCFG=\"nwscanmode\",3,1";
             cellularStatus = sendAtCommandWithRetryTimeout( pContext, &atReqGetNoResult );
@@ -291,6 +297,8 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
 
         if( cellularStatus == CELLULAR_SUCCESS )
         {
+            vTaskDelay(pdMS_TO_TICKS(10));  // short delay
+
             /* Configure Network Category to be Searched under LTE RAT to eMTC only. */
             atReqGetNoResult.pAtCmd = "AT+QCFG=\"iotopmode\",0,1";
             cellularStatus = sendAtCommandWithRetryTimeout( pContext, &atReqGetNoResult );
@@ -298,6 +306,8 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
 
         if( cellularStatus == CELLULAR_SUCCESS )
         {
+            vTaskDelay(pdMS_TO_TICKS(10));  // short delay
+
             retAppendRat = appendRatList( ratSelectCmd, CELLULAR_CONFIG_DEFAULT_RAT );
             configASSERT( retAppendRat == true );
 
@@ -318,6 +328,8 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
 
         if( cellularStatus == CELLULAR_SUCCESS )
         {
+            vTaskDelay(pdMS_TO_TICKS(10));  // short delay
+
             atReqGetNoResult.pAtCmd = "AT+CFUN=1";
             cellularStatus = sendAtCommandWithRetryTimeout( pContext, &atReqGetNoResult );
         }
