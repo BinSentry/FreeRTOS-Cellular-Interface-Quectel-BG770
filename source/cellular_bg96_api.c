@@ -3511,7 +3511,7 @@ static CellularPktStatus_t fileUploadDataPrefix( void * pCallbackContext,
                                                  char * pLine,
                                                  uint32_t * pBytesRead )
 {
-    static const int FILE_UPLOAD_DATA_PREFIX_LENGTH = 7U;
+    static const int FILE_UPLOAD_DATA_PREFIX_LENGTH = 9U;
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
 
     if( ( pLine == NULL ) || ( pBytesRead == NULL ) )
@@ -3532,7 +3532,7 @@ static CellularPktStatus_t fileUploadDataPrefix( void * pCallbackContext,
     {
         /* After the data prefix, there should not be any data in stream.
          * Cellular common processes AT command in lines. Add a '\0' after 'CONNECT'. */
-        if( strcmp( pLine, "CONNECT" ) == 0 )
+        if( strcmp( pLine, "CONNECT\r\n" ) == 0 )
         {
             pLine[ FILE_UPLOAD_DATA_PREFIX_LENGTH ] = '\n';
         }
@@ -3554,14 +3554,23 @@ CellularError_t Cellular_UploadFileToModem( CellularHandle_t cellularHandle,
     uint32_t sendTimeout = DATA_SEND_TIMEOUT_MS;
     char cmdBuf[ CELLULAR_AT_CMD_MAX_SIZE ] = { '\0' };
     uint32_t sentFileLength = 0;
+//    CellularAtReq_t atReqSocketSend =     // TODO (MV): this info needs to go into post-data message type (needs to be added)
+//    {
+//        cmdBuf,
+//        CELLULAR_AT_WITH_PREFIX,
+//        "+QFUPL",
+//        _Cellular_RecvFileUploadResult,
+//        fileUploadResult,
+//        sizeof(CellularFileUploadResult_t),
+//    };
     CellularAtReq_t atReqSocketSend =
     {
         cmdBuf,
-        CELLULAR_AT_WITH_PREFIX,
-        "+QFUPL",
-        _Cellular_RecvFileUploadResult,
-        fileUploadResult,
-        sizeof(CellularFileUploadResult_t),
+        CELLULAR_AT_NO_RESULT,
+        NULL,
+        NULL,
+        NULL,
+        0,
     };
     CellularAtDataReq_t atDataReqSocketSend =
     {
