@@ -2803,7 +2803,12 @@ CellularError_t Cellular_SocketSend( CellularHandle_t cellularHandle,
         dataLength,
         pSentDataLength,
         NULL,
-        0
+        0,
+        CELLULAR_AT_NO_RESULT,
+        NULL,
+        NULL,
+        NULL,
+        0,
     };
 
     /* pContext is checked in _Cellular_CheckLibraryStatus function. */
@@ -3424,7 +3429,7 @@ static bool _parseFileUploadResult(char * pQfuplPayload,
 
     if( ( parseStatus == true ) && (Cellular_ATGetNextTok(&pTmpQfuplPayload, &pToken ) == CELLULAR_AT_SUCCESS ) )
     {
-        atCoreStatus = Cellular_ATStrtoi( pToken, 10, &tempValue );
+        atCoreStatus = Cellular_ATStrtoi( pToken, 16, &tempValue );     // NOTE: File AT command v1.0 documentation states integer value (pg. 15) but actually hex string (with no leading 0X)
 
         if( atCoreStatus == CELLULAR_AT_SUCCESS &&
             tempValue >= 0 && tempValue <= UINT16_MAX )
@@ -3574,11 +3579,16 @@ CellularError_t Cellular_UploadFileToModem( CellularHandle_t cellularHandle,
     };
     CellularAtDataReq_t atDataReqSocketSend =
     {
-            pFile,
-            fileLength,
-            &sentFileLength,
-            NULL,
-            0
+        pFile,
+        fileLength,
+        &sentFileLength,
+        NULL,
+        0,
+        CELLULAR_AT_WITH_PREFIX,
+        "+QFUPL",
+        _Cellular_RecvFileUploadResult,
+        fileUploadResult,
+        sizeof(CellularFileUploadResult_t),
     };
 
     /* pContext is checked in _Cellular_CheckLibraryStatus function. */
@@ -3699,7 +3709,7 @@ static bool _parseFileCRCs( char * pQfcrcPayload,
 
     if( ( parseStatus == true ) && (Cellular_ATGetNextTok(&pTmpQfcrcPayload, &pToken ) == CELLULAR_AT_SUCCESS ) )
     {
-        atCoreStatus = Cellular_ATStrtoui( pToken, 10, &tempUValue );
+        atCoreStatus = Cellular_ATStrtoui( pToken, 16, &tempUValue );
 
         if( atCoreStatus == CELLULAR_AT_SUCCESS )
         {
@@ -3718,7 +3728,7 @@ static bool _parseFileCRCs( char * pQfcrcPayload,
 
     if( ( parseStatus == true ) && (Cellular_ATGetNextTok(&pTmpQfcrcPayload, &pToken ) == CELLULAR_AT_SUCCESS ) )
     {
-        atCoreStatus = Cellular_ATStrtoi( pToken, 10, &tempValue );
+        atCoreStatus = Cellular_ATStrtoi( pToken, 16, &tempValue );
 
         if( atCoreStatus == CELLULAR_AT_SUCCESS &&
             tempValue >= 0 && tempValue <= UINT16_MAX )
@@ -3738,7 +3748,7 @@ static bool _parseFileCRCs( char * pQfcrcPayload,
 
     if( ( parseStatus == true ) && (Cellular_ATGetNextTok(&pTmpQfcrcPayload, &pToken ) == CELLULAR_AT_SUCCESS ) )
     {
-        atCoreStatus = Cellular_ATStrtoi( pToken, 10, &tempValue );
+        atCoreStatus = Cellular_ATStrtoi( pToken, 16, &tempValue );
 
         if( atCoreStatus == CELLULAR_AT_SUCCESS &&
             tempValue >= 0 && tempValue <= UINT16_MAX )
