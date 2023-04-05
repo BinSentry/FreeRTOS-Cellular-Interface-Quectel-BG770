@@ -39,8 +39,8 @@
 
 /*-----------------------------------------------------------*/
 
-#define ENABLE_MODULE_UE_RETRY_COUNT       ( 3U )
-#define ENABLE_MODULE_UE_RETRY_TIMEOUT     ( 5000U + 500U )
+#define ENABLE_MODULE_UE_RETRY_COUNT       ( 4U )
+#define ENABLE_MODULE_UE_RETRY_TIMEOUT     ( 15000U )   /* observed at least 11000 */
 #define BG770_NWSCANSEQ_CMD_MAX_SIZE       ( 30U ) /* Need at least the length of AT+QCFG="nwscanseq",020301,1\0. */
 
 /*-----------------------------------------------------------*/
@@ -71,7 +71,7 @@ uint32_t CellularSrcTokenSuccessTableSize = sizeof( CellularSrcTokenSuccessTable
 /* FreeRTOS Cellular Common Library porting interface. */
 /* coverity[misra_c_2012_rule_8_7_violation] */
 const char * CellularUrcTokenWoPrefixTable[] =
-{ "POWERED DOWN", "RDY" };  // TODO (MV): Does "APP RDY" need to be added here?
+{ "APP RDY", "POWERED DOWN", "RDY" };
 /* FreeRTOS Cellular Common Library porting interface. */
 /* coverity[misra_c_2012_rule_8_7_violation] */
 uint32_t CellularUrcTokenWoPrefixTableSize = sizeof( CellularUrcTokenWoPrefixTable ) / sizeof( char * );
@@ -93,6 +93,10 @@ static CellularError_t sendAtCommandWithRetryTimeout( CellularContext_t * pConte
     {
         for( ; tryCount < ENABLE_MODULE_UE_RETRY_COUNT; tryCount++ )
         {
+            if (tryCount > 0) {
+                vTaskDelay(pdMS_TO_TICKS(1000UL * (uint32_t)tryCount * tryCount));   // increasing backoff
+            }
+
             pktStatus = _Cellular_TimeoutAtcmdRequestWithCallback( pContext, *pAtReq, ENABLE_MODULE_UE_RETRY_TIMEOUT );
             cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
 
@@ -100,8 +104,6 @@ static CellularError_t sendAtCommandWithRetryTimeout( CellularContext_t * pConte
             {
                 break;
             }
-
-            // TODO (MV): Add delay?
         }
     }
 
@@ -244,6 +246,8 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
 
     if( pContext != NULL )
     {
+        vTaskDelay(pdMS_TO_TICKS(10000));   // TODO (MV): Temporary delay, remove once "RDY" and "APP RDY" handled properly
+
         /* Disable echo. */
         atReqGetWithResult.pAtCmd = "ATE0";
         cellularStatus = sendAtCommandWithRetryTimeout( pContext, &atReqGetWithResult );
@@ -258,6 +262,8 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
         #ifndef CELLULAR_CONFIG_DISABLE_FLOW_CONTROL
             if( cellularStatus == CELLULAR_SUCCESS )
             {
+                vTaskDelay(pdMS_TO_TICKS(10));  // short delay
+
                 /* Enable RTS/CTS hardware flow control. */
                 atReqGetNoResult.pAtCmd = "AT+IFC=2,2";
                 cellularStatus = sendAtCommandWithRetryTimeout( pContext, &atReqGetNoResult );
@@ -286,14 +292,15 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
             cellularStatus = sendAtCommandWithRetryTimeout( pContext, &atReqGetNoResult );
         }
 
-        if( cellularStatus == CELLULAR_SUCCESS )
-        {
-            vTaskDelay(pdMS_TO_TICKS(10));  // short delay
-
-            /* Configure RAT(s) to be Searched to LTE. */
-            atReqGetNoResult.pAtCmd = "AT+QCFG=\"nwscanmode\",3,1";
-            cellularStatus = sendAtCommandWithRetryTimeout( pContext, &atReqGetNoResult );
-        }
+        // TODO (MV): This command always returns "ERROR" now after changing boot/init timing
+//        if( cellularStatus == CELLULAR_SUCCESS )
+//        {
+//            vTaskDelay(pdMS_TO_TICKS(10));  // short delay
+//
+//            /* Configure RAT(s) to be Searched to LTE. */
+//            atReqGetNoResult.pAtCmd = "AT+QCFG=\"nwscanmode\",3,1";
+//            cellularStatus = sendAtCommandWithRetryTimeout( pContext, &atReqGetNoResult );
+//        }
 
         if( cellularStatus == CELLULAR_SUCCESS )
         {

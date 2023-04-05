@@ -46,6 +46,8 @@ static void _Cellular_ProcessPsmPowerDown( CellularContext_t * pContext,
                                            char * pInputLine );
 static void _Cellular_ProcessModemRdy( CellularContext_t * pContext,
                                        char * pInputLine );
+static void _Cellular_ProcessModemAppRdy( CellularContext_t * pContext,
+                                          char * pInputLine );
 static void _Cellular_ProcessSocketOpen( CellularContext_t * pContext,
                                          char * pInputLine );
 static void _Cellular_ProcessSSLSocketOpen( CellularContext_t * pContext,
@@ -66,6 +68,7 @@ static void _Cellular_ProcessIndication( CellularContext_t * pContext,
 /* coverity[misra_c_2012_rule_8_7_violation] */
 CellularAtParseTokenMap_t CellularUrcHandlerTable[] =
 {
+    { "APP RDY",           _Cellular_ProcessModemAppRdy },
     { "CEREG",             Cellular_CommonUrcProcessCereg },
     { "CREG",              Cellular_CommonUrcProcessCreg  },
     { "POWERED DOWN",      _Cellular_ProcessPowerDown     },
@@ -903,6 +906,27 @@ static void _Cellular_ProcessModemRdy( CellularContext_t * pContext,
     else
     {
         LogDebug( ( "_Cellular_ProcessModemRdy: Modem Ready event received" ) );
+        _Cellular_ModemEventCallback( pContext, CELLULAR_MODEM_EVENT_BOOTUP_OR_REBOOT );
+    }
+}
+
+/*-----------------------------------------------------------*/
+
+/* Cellular common prototype. */
+/* coverity[misra_c_2012_rule_8_13_violation] */
+static void _Cellular_ProcessModemAppRdy( CellularContext_t * pContext,
+                                          char * pInputLine )
+{
+    /* The token is the pInputLine. No need to process the pInputLine. */
+    ( void ) pInputLine;
+
+    if( pContext == NULL )
+    {
+        LogWarn( ( "_Cellular_ProcessModemRdy: Context not set" ) );
+    }
+    else
+    {
+        LogInfo( ( "_Cellular_ProcessModemRdy: Modem App Ready event received" ) );
         _Cellular_ModemEventCallback( pContext, CELLULAR_MODEM_EVENT_BOOTUP_OR_REBOOT );
     }
 }
