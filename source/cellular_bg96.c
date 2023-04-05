@@ -27,12 +27,12 @@
 
 
 #include <stdint.h>
-#include "cellular_platform.h"
 /* The config header is always included first. */
 #ifndef CELLULAR_DO_NOT_USE_CUSTOM_CONFIG
 #include "cellular_config.h"
 #endif
 #include "cellular_config_defaults.h"
+#include "cellular_platform.h"
 #include "cellular_common.h"
 #include "cellular_common_portable.h"
 #include "cellular_bg96.h"
@@ -42,6 +42,9 @@
 #define ENABLE_MODULE_UE_RETRY_COUNT       ( 4U )
 #define ENABLE_MODULE_UE_RETRY_TIMEOUT     ( 15000U )   /* observed at least 11000 */
 #define BG770_NWSCANSEQ_CMD_MAX_SIZE       ( 30U ) /* Need at least the length of AT+QCFG="nwscanseq",020301,1\0. */
+
+static const TickType_t APP_READY_MAX_WAIT_PERIOD_ticks = pdMS_TO_TICKS(10000);
+static const TickType_t POST_APP_READY_WAIT_PERIOD_ticks = pdMS_TO_TICKS(5000);
 
 /*-----------------------------------------------------------*/
 
@@ -150,7 +153,7 @@ CellularError_t Cellular_ModuleInit( const CellularContext_t * pContext,
                                      void ** ppModuleContext )
 {
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
-    bool status = false;
+    bool mutexCreateStatus = false;
 
     if( pContext == NULL )
     {
@@ -166,26 +169,62 @@ CellularError_t Cellular_ModuleInit( const CellularContext_t * pContext,
         ( void ) memset( &cellularBg770Context, 0, sizeof( cellularModuleContext_t ) );
 
         /* Create the mutex for DNS. */
-        status = PlatformMutex_Create( &cellularBg770Context.dnsQueryMutex, false );
+        mutexCreateStatus = PlatformMutex_Create( &cellularBg770Context.dnsQueryMutex, false );
 
-        if( status == false )
+        if( mutexCreateStatus == false )
         {
             cellularStatus = CELLULAR_NO_MEMORY;
         }
-        else
+
+        if (cellularStatus == CELLULAR_SUCCESS)
         {
             /* Create the queue for DNS. */
             cellularBg770Context.pktDnsQueue = xQueueCreate( 1, sizeof( cellularDnsQueryResult_t ) );
 
             if( cellularBg770Context.pktDnsQueue == NULL )
             {
-                PlatformMutex_Destroy( &cellularBg770Context.dnsQueryMutex );
+                cellularStatus = CELLULAR_NO_MEMORY;
+            }
+        }
+
+        if (cellularStatus == CELLULAR_SUCCESS)
+        {
+            cellularBg770Context.pInitEvent = (PlatformEventGroupHandle_t) PlatformEventGroup_Create();
+
+            if (cellularBg770Context.pInitEvent == NULL) {
                 cellularStatus = CELLULAR_NO_MEMORY;
             }
             else
             {
-                *ppModuleContext = ( void * ) &cellularBg770Context;
+                ( void ) PlatformEventGroup_ClearBits( ( PlatformEventGroupHandle_t ) cellularBg770Context.pInitEvent,
+                                                       ( ( PlatformEventGroup_EventBits ) INIT_EVT_MASK_ALL_EVENTS ) );
             }
+        }
+    }
+
+    if (cellularStatus == CELLULAR_SUCCESS)
+    {
+        *ppModuleContext = ( void * ) &cellularBg770Context;
+    }
+    else
+    {
+        /* Clean up any created entities */
+
+        if (mutexCreateStatus)
+        {
+            PlatformMutex_Destroy( &cellularBg770Context.dnsQueryMutex );
+        }
+
+        if( cellularBg770Context.pktDnsQueue != NULL )
+        {
+            /* Delete DNS queue. */
+            vQueueDelete( cellularBg770Context.pktDnsQueue );
+        }
+
+        if (cellularBg770Context.pInitEvent != NULL)
+        {
+            ( void ) PlatformEventGroup_Delete( cellularBg770Context.pInitEvent );
+            cellularBg770Context.pInitEvent = ( PlatformEventGroupHandle_t ) ( uintptr_t ) ( uintptr_t * ) NULL;
         }
     }
 
@@ -208,9 +247,13 @@ CellularError_t Cellular_ModuleCleanUp( const CellularContext_t * pContext )
     {
         /* Delete DNS queue. */
         vQueueDelete( cellularBg770Context.pktDnsQueue );
+        cellularBg770Context.pktDnsQueue = NULL;
 
         /* Delete the mutex for DNS. */
         PlatformMutex_Destroy( &cellularBg770Context.dnsQueryMutex );
+
+        ( void ) PlatformEventGroup_Delete( cellularBg770Context.pInitEvent );
+        cellularBg770Context.pInitEvent = ( PlatformEventGroupHandle_t ) ( uintptr_t ) ( uintptr_t * ) NULL;
     }
 
     return cellularStatus;
@@ -246,7 +289,34 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
 
     if( pContext != NULL )
     {
-        vTaskDelay(pdMS_TO_TICKS(10000));   // TODO (MV): Temporary delay, remove once "RDY" and "APP RDY" handled properly
+        cellularModuleContext_t * pModuleContext = NULL;
+        CellularError_t result = _Cellular_GetModuleContext( pContext, (void **)&pModuleContext );
+        if( ( result == CELLULAR_SUCCESS ) && ( pModuleContext != NULL ) )
+        {
+            /* Wait events for abort thread or rx data available. */
+            PlatformEventGroup_EventBits uxBits = ( PlatformEventGroup_EventBits ) PlatformEventGroup_WaitBits(
+                    ( PlatformEventGroupHandle_t ) pModuleContext->pInitEvent,
+                    ( ( PlatformEventGroup_EventBits ) INIT_EVT_MASK_APP_RDY_RECEIVED ),
+                    pdTRUE,
+                    pdFALSE,
+                    APP_READY_MAX_WAIT_PERIOD_ticks );
+
+            if( ( uxBits & INIT_EVT_MASK_APP_RDY_RECEIVED ) != 0 )
+            {
+                LogInfo( ( "Cellular_ModuleEnableUE: 'APP_RDY' URC received" ) );
+            }
+            else
+            {
+                LogWarn( ( "Cellular_ModuleEnableUE: Init event flag 'APP_RDY received' timeout (after waiting %lu ticks)", APP_READY_MAX_WAIT_PERIOD_ticks ) );
+            }
+        }
+        else
+        {
+            LogError( ( "Cellular_ModuleEnableUE: Failed to wait on Init event flag 'APP_RDY received', waiting %lu ticks", APP_READY_MAX_WAIT_PERIOD_ticks ) );
+            vTaskDelay(APP_READY_MAX_WAIT_PERIOD_ticks);
+        }
+
+        vTaskDelay(POST_APP_READY_WAIT_PERIOD_ticks);
 
         /* Disable echo. */
         atReqGetWithResult.pAtCmd = "ATE0";

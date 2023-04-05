@@ -57,6 +57,9 @@
 #define DATA_SEND_TIMEOUT_MS                       ( 120000UL )
 #define DATA_READ_TIMEOUT_MS                       ( 120000UL )
 
+#define INIT_EVT_MASK_APP_RDY_RECEIVED     ( 0x0001UL )
+#define INIT_EVT_MASK_ALL_EVENTS           ( INIT_EVT_MASK_APP_RDY_RECEIVED )
+
 /**
  * @brief DNS query result.
  */
@@ -86,7 +89,11 @@ typedef struct cellularModuleContext
     uint8_t dnsIndex;              /* DNS query current index. */
     char * pDnsUsrData;            /* DNS user data to store the result. */
     CellularDnsResultEventCallback_t dnsEventCallback;
-    /* Forward declaration to declar the callback function prototype. */
+
+    /* "APP RDY" URC related variables */
+    PlatformEventGroupHandle_t pInitEvent;
+
+    /* Forward declaration to declare the callback function prototype. */
     /* coverity[misra_c_2012_rule_1_1_violation]. */
 } cellularModuleContext_t;
 

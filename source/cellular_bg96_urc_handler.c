@@ -926,8 +926,19 @@ static void _Cellular_ProcessModemAppRdy( CellularContext_t * pContext,
     }
     else
     {
-        LogInfo( ( "_Cellular_ProcessModemRdy: Modem App Ready event received" ) );
+        LogDebug( ( "_Cellular_ProcessModemRdy: Modem App Ready event received" ) );
         _Cellular_ModemEventCallback( pContext, CELLULAR_MODEM_EVENT_BOOTUP_OR_REBOOT );
+
+        cellularModuleContext_t * pModuleContext = NULL;
+        CellularError_t cellularStatus = _Cellular_GetModuleContext( pContext, (void **)&pModuleContext );
+        if( ( cellularStatus == CELLULAR_SUCCESS ) && ( pModuleContext != NULL ) )
+        {
+            ( void ) PlatformEventGroup_SetBits( ( PlatformEventGroupHandle_t ) pModuleContext->pInitEvent, ( EventBits_t ) INIT_EVT_MASK_APP_RDY_RECEIVED );
+        }
+        else
+        {
+            LogWarn( ( "_Cellular_ProcessModemRdy: Unable to obtain module context to set APP_RDY received event flag" ) );
+        }
     }
 }
 
