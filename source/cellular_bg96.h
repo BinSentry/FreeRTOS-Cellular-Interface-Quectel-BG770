@@ -60,6 +60,8 @@
 #define INIT_EVT_MASK_APP_RDY_RECEIVED     ( 0x0001UL )
 #define INIT_EVT_MASK_ALL_EVENTS           ( INIT_EVT_MASK_APP_RDY_RECEIVED )
 
+#define PSM_VERSION_BIT_MASK               ( 0b00001111u )
+
 /**
  * @brief DNS query result.
  */

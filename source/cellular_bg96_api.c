@@ -1740,6 +1740,92 @@ static CellularPktStatus_t _Cellular_RecvFuncGetPsmSettings( CellularContext_t *
 
 /*-----------------------------------------------------------*/
 
+/* FreeRTOS Cellular Library types. */
+/* coverity[misra_c_2012_rule_8_13_violation] */
+static CellularPktStatus_t _Cellular_RecvFuncGetPsmConfigSettings( CellularContext_t * pContext,
+                                                                   const CellularATCommandResponse_t * pAtResp,
+                                                                   void * pData,
+                                                                   uint16_t dataLen )
+{
+    char * pInputLine = NULL, * pToken = NULL;
+    uint8_t tokenIndex = 0;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    CellularATError_t atCoreStatus = CELLULAR_AT_SUCCESS;
+    CellularPsmConfigSettings_t * pPsmConfigSettings = NULL;
+    uint32_t tempUValue = 0;
+    int32_t tempValue = 0;
+
+    if( pContext == NULL )
+    {
+        LogError( ( "GetPsmConfigSettings: Invalid context" ) );
+        pktStatus = CELLULAR_PKT_STATUS_FAILURE;
+    }
+    else if( ( pAtResp == NULL ) || ( pAtResp->pItm == NULL ) ||
+             ( pAtResp->pItm->pLine == NULL ) || ( pData == NULL ) || ( dataLen != sizeof( CellularPsmConfigSettings_t ) ) )
+    {
+        LogError( ( "GetPsmConfigSettings: Invalid param" ) );
+        pktStatus = CELLULAR_PKT_STATUS_BAD_PARAM;
+    }
+    else
+    {
+        pInputLine = pAtResp->pItm->pLine;
+        pPsmConfigSettings = ( CellularPsmConfigSettings_t * ) pData;
+        atCoreStatus = Cellular_ATRemovePrefix( &pInputLine );
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATRemoveAllWhiteSpaces( pInputLine );
+        }
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATGetNextTok( &pInputLine, &pToken );
+        }
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATStrtoui(pToken, 10, &tempUValue);
+
+            if( atCoreStatus == CELLULAR_AT_SUCCESS )
+            {
+                pPsmConfigSettings->threshold = tempUValue;     // TODO (MV): Only value between 20 and UINT32_MAX
+            }
+        }
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATGetNextTok( &pInputLine, &pToken );
+        }
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATStrtoi(pToken, 10, &tempValue);
+
+            if( atCoreStatus == CELLULAR_AT_SUCCESS )
+            {
+                if( ( tempValue >= 0 ) && (tempValue <= ( int32_t ) UINT8_MAX ) )  // TODO (MV): Only 0 - 15 are valid
+                {
+                    pPsmConfigSettings->psmVersion = ( uint8_t ) tempValue;
+                }
+                else
+                {
+                    LogError( ( "Error in processing PSM version. Token %s", pToken ) );
+                    atCoreStatus = CELLULAR_AT_ERROR;
+                }
+            }
+        }
+
+        LogDebug( ( "PSM config settings: threshold: %lu, version: %d",
+                pPsmConfigSettings->threshold,
+                pPsmConfigSettings->psmVersion ) );
+        pktStatus = _Cellular_TranslateAtCoreStatus( atCoreStatus );
+    }
+
+    return pktStatus;
+}
+
+/*-----------------------------------------------------------*/
+
 static CellularPktStatus_t socketRecvDataPrefix( void * pCallbackContext,
                                                  char * pLine,
                                                  uint32_t lineLength,
@@ -2303,6 +2389,55 @@ CellularError_t Cellular_GetPsmSettings( CellularHandle_t cellularHandle,
 
 /*-----------------------------------------------------------*/
 
+/* FreeRTOS Cellular Library API. */
+/* coverity[misra_c_2012_rule_8_7_violation] */
+CellularError_t Cellular_GetPsmConfigSettings( CellularHandle_t cellularHandle,
+                                               CellularPsmConfigSettings_t * pPsmConfigSettings )
+{
+    CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    CellularAtReq_t atReqGetPsm =
+    {
+        "AT+QPSMCFG?",
+        CELLULAR_AT_WITH_PREFIX,
+        "+QPSMCFG",
+        _Cellular_RecvFuncGetPsmConfigSettings,
+        pPsmConfigSettings,
+        sizeof( CellularPsmConfigSettings_t ),
+    };
+
+    cellularStatus = _Cellular_CheckLibraryStatus( pContext );
+
+    if( cellularStatus != CELLULAR_SUCCESS )
+    {
+        LogDebug( ( "_Cellular_CheckLibraryStatus failed" ) );
+    }
+    else if( pPsmConfigSettings == NULL )
+    {
+        cellularStatus = CELLULAR_BAD_PARAMETER;
+    }
+    else
+    {
+        /* initialize the data. */
+        ( void ) memset( pPsmConfigSettings, 0, sizeof( CellularPsmConfigSettings_t ) );
+        pPsmConfigSettings->psmVersion = 0xFF;
+
+        /* we should always query the PSMsettings from the network. */
+        pktStatus = _Cellular_AtcmdRequestWithCallback( pContext, atReqGetPsm );
+
+        if( pktStatus != CELLULAR_PKT_STATUS_OK )
+        {
+            LogError( ( "Cellular_GetPsmSettings: couldn't retrieve PSM settings" ) );
+            cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
+        }
+    }
+
+    return cellularStatus;
+}
+
+/*-----------------------------------------------------------*/
+
 static uint32_t appendBinaryPattern( char * cmdBuf,
                                      uint32_t cmdLen,
                                      uint32_t value,
@@ -2431,8 +2566,70 @@ CellularError_t Cellular_SetPsmSettings( CellularHandle_t cellularHandle,
 
         if( cmdBufLen < CELLULAR_AT_CMD_MAX_SIZE )
         {
-            /* we should always query the PSMsettings from the network. */
             pktStatus = _Cellular_AtcmdRequestWithCallback( pContext, atReqSetPsm );
+
+            if( pktStatus != CELLULAR_PKT_STATUS_OK )
+            {
+                LogError( ( "Cellular_SetPsmSettings: couldn't set PSM settings" ) );
+                cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
+            }
+        }
+        else
+        {
+            cellularStatus = CELLULAR_NO_MEMORY;
+        }
+    }
+
+    return cellularStatus;
+}
+
+/*-----------------------------------------------------------*/
+
+/* FreeRTOS Cellular Library API. */
+/* coverity[misra_c_2012_rule_8_7_violation] */
+CellularError_t Cellular_SetPsmConfigSettings( CellularHandle_t cellularHandle,
+                                               const CellularPsmConfigSettings_t * pPsmConfigSettings )
+{
+    CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    char cmdBuf[ CELLULAR_AT_CMD_MAX_SIZE ] = { '\0' };
+    uint32_t cmdBufLen = 0;
+    CellularAtReq_t atReqSetPsmConfig =
+    {
+        cmdBuf,
+        CELLULAR_AT_NO_RESULT,
+        NULL,
+        NULL,
+        NULL,
+        0
+    };
+
+    cellularStatus = _Cellular_CheckLibraryStatus( pContext );
+
+    if( cellularStatus != CELLULAR_SUCCESS )
+    {
+        LogDebug( ( "_Cellular_CheckLibraryStatus failed" ) );
+    }
+    else if( ( pPsmConfigSettings == NULL )
+             || ( ( pPsmConfigSettings->psmVersion & PSM_VERSION_BIT_MASK) != pPsmConfigSettings->psmVersion ) )
+    {
+        cellularStatus = CELLULAR_BAD_PARAMETER;
+    }
+    else
+    {
+        /* Form the AT command. */
+
+        /* The return value of snprintf is not used.
+         * The max length of the string is fixed and checked offline. */
+        /* coverity[misra_c_2012_rule_21_6_violation]. */
+        int len = snprintf( cmdBuf, CELLULAR_AT_CMD_MAX_SIZE, "AT+QPSMCFG=%lu,%d", pPsmConfigSettings->threshold, pPsmConfigSettings->psmVersion );
+
+        if( len < CELLULAR_AT_CMD_MAX_SIZE )
+        {
+            LogDebug( ( "PSM config settings: %s ", cmdBuf ) );
+
+            pktStatus = _Cellular_AtcmdRequestWithCallback(pContext, atReqSetPsmConfig );
 
             if( pktStatus != CELLULAR_PKT_STATUS_OK )
             {
