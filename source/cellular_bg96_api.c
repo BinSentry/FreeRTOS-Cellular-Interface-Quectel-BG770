@@ -3556,18 +3556,8 @@ CellularError_t Cellular_UploadFileToModem( CellularHandle_t cellularHandle,
     CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
-    uint32_t sendTimeout = DATA_SEND_TIMEOUT_MS;
     char cmdBuf[ CELLULAR_AT_CMD_MAX_SIZE ] = { '\0' };
     uint32_t sentFileLength = 0;
-//    CellularAtReq_t atReqSocketSend =     // TODO (MV): this info needs to go into post-data message type (needs to be added)
-//    {
-//        cmdBuf,
-//        CELLULAR_AT_WITH_PREFIX,
-//        "+QFUPL",
-//        _Cellular_RecvFileUploadResult,
-//        fileUploadResult,
-//        sizeof(CellularFileUploadResult_t),
-//    };
     CellularAtReq_t atReqSocketSend =
     {
         cmdBuf,
