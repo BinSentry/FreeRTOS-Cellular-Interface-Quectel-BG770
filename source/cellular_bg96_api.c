@@ -2594,7 +2594,6 @@ CellularError_t Cellular_SetPsmConfigSettings( CellularHandle_t cellularHandle,
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
     char cmdBuf[ CELLULAR_AT_CMD_MAX_SIZE ] = { '\0' };
-    uint32_t cmdBufLen = 0;
     CellularAtReq_t atReqSetPsmConfig =
     {
         cmdBuf,
