@@ -349,7 +349,6 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
         }
 
         #ifndef CELLULAR_CONFIG_DISABLE_FLOW_CONTROL
-        // TODO (MV): Want this on but not able to communicate with this setting
             if( cellularStatus == CELLULAR_SUCCESS )
             {
                 vTaskDelay( SHORT_DELAY_ticks );
