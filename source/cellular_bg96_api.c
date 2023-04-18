@@ -112,6 +112,12 @@
 
 /*-----------------------------------------------------------*/
 
+static const int FLOW_CONTROL_NONE = 0;
+static const int RTS_FLOW_CONTROL_ENABLED = 2;
+static const int CTS_FLOW_CONTROL_ENABLED = 2;
+
+/*-----------------------------------------------------------*/
+
 /**
  * @brief Parameters involved in receiving data through sockets
  */
@@ -5049,6 +5055,382 @@ CellularError_t Cellular_GetSocketLastResultCode( CellularHandle_t cellularHandl
         if( pktStatus != CELLULAR_PKT_STATUS_OK )
         {
             LogError( ( "Cellular_GetSocketLastResultCode: couldn't retrieve last result code" ) );
+            cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
+        }
+    }
+
+    return cellularStatus;
+}
+
+/*-----------------------------------------------------------*/
+
+/* FreeRTOS Cellular Library types. */
+/* coverity[misra_c_2012_rule_8_13_violation] */
+static CellularPktStatus_t _Cellular_RecvFuncGetFlowControlSetting( CellularContext_t * pContext,
+                                                                    const CellularATCommandResponse_t * pAtResp,
+                                                                    void * pData,
+                                                                    uint16_t dataLen )
+{
+    char * pInputLine = NULL, * pToken = NULL;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    CellularATError_t atCoreStatus = CELLULAR_AT_SUCCESS;
+    CellularModuleCommFlowControl_t * pFlowControlSetting = NULL;
+    int32_t rtsFlowControl = -1;
+    int32_t ctsFlowControl = -1;
+
+    if( pContext == NULL )
+    {
+        LogError( ( "Cellular_GetModuleFlowControlSetting: Invalid context" ) );
+        pktStatus = CELLULAR_PKT_STATUS_FAILURE;
+    }
+    else if( ( pAtResp == NULL ) || ( pAtResp->pItm == NULL ) ||
+             ( pAtResp->pItm->pLine == NULL ) ||
+             ( pData == NULL ) || ( dataLen == sizeof(CellularModuleCommFlowControl_t) ) )
+    {
+        LogError( ( "Cellular_GetModuleFlowControlSetting: Invalid param" ) );
+        pktStatus = CELLULAR_PKT_STATUS_BAD_PARAM;
+    }
+    else
+    {
+        pInputLine = pAtResp->pItm->pLine;
+        pFlowControlSetting = ( CellularModuleCommFlowControl_t * ) pData;
+        atCoreStatus = Cellular_ATRemovePrefix( &pInputLine );
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATRemoveAllWhiteSpaces( pInputLine );
+        }
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATGetNextTok( &pInputLine, &pToken );
+        }
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATStrtoi( pToken, 10, &rtsFlowControl );
+
+            if( atCoreStatus == CELLULAR_AT_SUCCESS )
+            {
+                LogDebug( ( "RTS flow control setting: %ld", rtsFlowControl ) );
+            }
+            else
+            {
+                LogError( ( "Error in processing RTS flow control setting. Token %s", pToken ) );
+            }
+        }
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATGetNextTok( &pInputLine, &pToken );
+        }
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATStrtoi( pToken, 10, &ctsFlowControl );
+
+            if( atCoreStatus == CELLULAR_AT_SUCCESS )
+            {
+                LogDebug( ( "CTS flow control setting: %ld", ctsFlowControl ) );
+            }
+            else
+            {
+                LogError( ( "Error in processing CTS flow control setting. Token %s", pToken ) );
+            }
+        }
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            if( ( rtsFlowControl == RTS_FLOW_CONTROL_ENABLED ) && ( ctsFlowControl == CTS_FLOW_CONTROL_ENABLED ) )
+            {
+                *pFlowControlSetting = CELLULAR_MODULE_COMM_FLOW_CONTROL_RTS_CTS;
+            }
+            else if( ( rtsFlowControl == RTS_FLOW_CONTROL_ENABLED ) && ( ctsFlowControl == FLOW_CONTROL_NONE ) )
+            {
+                *pFlowControlSetting = CELLULAR_MODULE_COMM_FLOW_CONTROL_RTS;
+            }
+            else if( ( rtsFlowControl != FLOW_CONTROL_NONE ) && ( ctsFlowControl == CTS_FLOW_CONTROL_ENABLED ) )
+            {
+                *pFlowControlSetting = CELLULAR_MODULE_COMM_FLOW_CONTROL_CTS;
+            }
+            else if( ( rtsFlowControl == FLOW_CONTROL_NONE ) && ( ctsFlowControl == FLOW_CONTROL_NONE ) )
+            {
+                *pFlowControlSetting = CELLULAR_MODULE_COMM_FLOW_CONTROL_NONE;
+            }
+            else
+            {
+                LogError( ( "Cellular_GetModuleFlowControlSetting: unexpected RTS and/or CTS setting, RTS: %ld, CTS: %ld",
+                            rtsFlowControl, ctsFlowControl ) );
+                *pFlowControlSetting = CELLULAR_MODULE_COMM_FLOW_CONTROL_UNKNOWN;
+            }
+        }
+
+        pktStatus = _Cellular_TranslateAtCoreStatus( atCoreStatus );
+    }
+
+    return pktStatus;
+}
+
+CellularError_t Cellular_GetModuleFlowControlSetting( CellularHandle_t cellularHandle,
+                                                      CellularModuleCommFlowControl_t * flowControl )
+{
+    CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    CellularAtReq_t atReqGetFlowControl =
+    {
+        "AT+IFC?",
+        CELLULAR_AT_WITH_PREFIX,
+        "+IFC",
+        _Cellular_RecvFuncGetFlowControlSetting,
+        flowControl,
+        sizeof( *flowControl )
+    };
+
+    cellularStatus = _Cellular_CheckLibraryStatus( pContext );
+
+    if( cellularStatus != CELLULAR_SUCCESS )
+    {
+        LogDebug( ( "_Cellular_CheckLibraryStatus failed" ) );
+    }
+    else if( flowControl == NULL )
+    {
+        cellularStatus = CELLULAR_BAD_PARAMETER;
+    }
+    else
+    {
+        pktStatus = _Cellular_AtcmdRequestWithCallback(pContext, atReqGetFlowControl );
+
+        if( pktStatus != CELLULAR_PKT_STATUS_OK )
+        {
+            LogError( ( "Cellular_GetModuleFlowControlSetting: couldn't retrieve flow control setting" ) );
+            cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
+        }
+    }
+
+    return cellularStatus;
+}
+
+/*-----------------------------------------------------------*/
+
+CellularError_t Cellular_SetModuleFlowControlSetting( CellularHandle_t cellularHandle,
+                                                      CellularModuleCommFlowControl_t * flowControl )
+{
+    CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    char cmdBuf[ CELLULAR_AT_CMD_MAX_SIZE ] = { '\0' };
+    CellularAtReq_t atReqSetFlowControl = {0};
+    int rtsSetting = FLOW_CONTROL_NONE;
+    int ctsSetting = FLOW_CONTROL_NONE;
+
+    atReqSetFlowControl.pAtCmd = cmdBuf;
+    atReqSetFlowControl.atCmdType = CELLULAR_AT_NO_RESULT;
+    atReqSetFlowControl.pAtRspPrefix = NULL;
+    atReqSetFlowControl.respCallback = NULL;
+    atReqSetFlowControl.pData = NULL;
+    atReqSetFlowControl.dataLen = 0;
+
+    cellularStatus = _Cellular_CheckLibraryStatus( pContext );
+
+    if( cellularStatus != CELLULAR_SUCCESS )
+    {
+        LogError( ( "_Cellular_CheckLibraryStatus failed" ) );
+    }
+    else if( ( flowControl == NULL ) || ( *flowControl == CELLULAR_MODULE_COMM_FLOW_CONTROL_UNKNOWN ) )
+    {
+        LogError( ( "Cellular_SetModuleFlowControlSetting : Bad parameter" ) );
+        cellularStatus = CELLULAR_BAD_PARAMETER;
+    }
+    else
+    {
+        /* Form the AT command. */
+
+        if( ( *flowControl == CELLULAR_MODULE_COMM_FLOW_CONTROL_RTS ) ||
+            ( *flowControl == CELLULAR_MODULE_COMM_FLOW_CONTROL_RTS_CTS ) )
+        {
+            rtsSetting = RTS_FLOW_CONTROL_ENABLED;
+        }
+        else
+        {
+            rtsSetting = FLOW_CONTROL_NONE;
+        }
+
+        if( ( *flowControl == CELLULAR_MODULE_COMM_FLOW_CONTROL_CTS ) ||
+            ( *flowControl == CELLULAR_MODULE_COMM_FLOW_CONTROL_RTS_CTS ) )
+        {
+            ctsSetting = CTS_FLOW_CONTROL_ENABLED;
+        }
+        else
+        {
+            ctsSetting = FLOW_CONTROL_NONE;
+        }
+
+        /* MISRA Ref 21.6.1 [Use of snprintf] */
+        /* More details at: https://github.com/FreeRTOS/FreeRTOS-Cellular-Interface/blob/main/MISRA.md#rule-216 */
+        /* coverity[misra_c_2012_rule_21_6_violation]. */
+        ( void ) snprintf( cmdBuf, CELLULAR_AT_CMD_MAX_SIZE, "%s%d,%d",
+                           "AT+IFC=",
+                           rtsSetting,
+                           ctsSetting
+                           );
+        LogDebug( ( "Baud rate setting: %s ", cmdBuf ) );
+        pktStatus = _Cellular_AtcmdRequestWithCallback(pContext, atReqSetFlowControl );
+
+        if( pktStatus != CELLULAR_PKT_STATUS_OK )
+        {
+            LogError( ( "Cellular_SetModuleFlowControlSetting: couldn't set flow control settings" ) );
+            cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
+        }
+    }
+
+    return cellularStatus;
+}
+
+/*-----------------------------------------------------------*/
+
+/* FreeRTOS Cellular Library types. */
+/* coverity[misra_c_2012_rule_8_13_violation] */
+static CellularPktStatus_t _Cellular_RecvFuncGetBaudRateSetting( CellularContext_t * pContext,
+                                                                 const CellularATCommandResponse_t * pAtResp,
+                                                                 void * pData,
+                                                                 uint16_t dataLen )
+{
+    char * pInputLine = NULL, * pToken = NULL;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    CellularATError_t atCoreStatus = CELLULAR_AT_SUCCESS;
+    uint32_t * pBaudRateSetting = NULL;
+    uint32_t tempValue = 0;
+
+    if( pContext == NULL )
+    {
+        LogError( ( "Cellular_GetModuleBaudRateSetting: Invalid context" ) );
+        pktStatus = CELLULAR_PKT_STATUS_FAILURE;
+    }
+    else if( ( pAtResp == NULL ) || ( pAtResp->pItm == NULL ) ||
+             ( pAtResp->pItm->pLine == NULL ) ||
+             ( pData == NULL ) || ( dataLen == sizeof(uint32_t) ) )
+    {
+        LogError( ( "Cellular_GetModuleBaudRateSetting: Invalid param" ) );
+        pktStatus = CELLULAR_PKT_STATUS_BAD_PARAM;
+    }
+    else
+    {
+        pInputLine = pAtResp->pItm->pLine;
+        pBaudRateSetting = ( uint32_t * ) pData;
+        atCoreStatus = Cellular_ATRemovePrefix( &pInputLine );
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATRemoveAllWhiteSpaces( pInputLine );
+        }
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATGetNextTok( &pInputLine, &pToken );
+        }
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATStrtoui( pToken, 10, &tempValue );
+
+            if( atCoreStatus == CELLULAR_AT_SUCCESS )
+            {
+                LogDebug( ( "Baud rate setting: %lu", tempValue ) );
+                *pBaudRateSetting = tempValue;
+            }
+            else
+            {
+                LogError( ( "Error in processing baud rate setting. Token %s", pToken ) );
+            }
+        }
+
+        pktStatus = _Cellular_TranslateAtCoreStatus( atCoreStatus );
+    }
+
+    return pktStatus;
+}
+
+CellularError_t Cellular_GetModuleBaudRateSetting( CellularHandle_t cellularHandle,
+                                                   uint32_t * baudRate )
+{
+    CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    CellularAtReq_t atReqGetBaudRate =
+    {
+        "AT+IPR?",
+        CELLULAR_AT_WITH_PREFIX,
+        "+IPR",
+        _Cellular_RecvFuncGetBaudRateSetting,
+        baudRate,
+        sizeof( *baudRate ),
+    };
+
+    cellularStatus = _Cellular_CheckLibraryStatus( pContext );
+
+    if( cellularStatus != CELLULAR_SUCCESS )
+    {
+        LogDebug( ( "_Cellular_CheckLibraryStatus failed" ) );
+    }
+    else if( baudRate == NULL )
+    {
+        cellularStatus = CELLULAR_BAD_PARAMETER;
+    }
+    else
+    {
+        pktStatus = _Cellular_AtcmdRequestWithCallback(pContext, atReqGetBaudRate );
+
+        if( pktStatus != CELLULAR_PKT_STATUS_OK )
+        {
+            LogError( ( "Cellular_GetModuleBaudRateSetting: couldn't retrieve baud rate setting" ) );
+            cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
+        }
+    }
+
+    return cellularStatus;
+}
+
+/*-----------------------------------------------------------*/
+
+CellularError_t Cellular_SetModuleBaudRateSetting( CellularHandle_t cellularHandle,
+                                                   uint32_t baudRate )
+{
+    CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    char cmdBuf[ CELLULAR_AT_CMD_MAX_SIZE ] = { '\0' };
+    CellularAtReq_t atReqSetBaudRate = {0 };
+
+    atReqSetBaudRate.pAtCmd = cmdBuf;
+    atReqSetBaudRate.atCmdType = CELLULAR_AT_NO_RESULT;
+    atReqSetBaudRate.pAtRspPrefix = NULL;
+    atReqSetBaudRate.respCallback = NULL;
+    atReqSetBaudRate.pData = NULL;
+    atReqSetBaudRate.dataLen = 0;
+
+    cellularStatus = _Cellular_CheckLibraryStatus( pContext );
+
+    if( cellularStatus != CELLULAR_SUCCESS )
+    {
+        LogError( ( "_Cellular_CheckLibraryStatus failed" ) );
+    }
+    else
+    {
+        /* Form the AT command. */
+
+        /* MISRA Ref 21.6.1 [Use of snprintf] */
+        /* More details at: https://github.com/FreeRTOS/FreeRTOS-Cellular-Interface/blob/main/MISRA.md#rule-216 */
+        /* coverity[misra_c_2012_rule_21_6_violation]. */
+        ( void ) snprintf( cmdBuf, CELLULAR_AT_CMD_MAX_SIZE, "%s%lu",
+                           "AT+IPR=",
+                           baudRate );
+        LogDebug( ( "Baud rate setting: %s ", cmdBuf ) );
+        pktStatus = _Cellular_AtcmdRequestWithCallback(pContext, atReqSetBaudRate );
+
+        if( pktStatus != CELLULAR_PKT_STATUS_OK )
+        {
+            LogError( ( "Cellular_SetModuleBaudRateSetting: couldn't set baud rate" ) );
             cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
         }
     }

@@ -43,8 +43,10 @@
 #define ENABLE_MODULE_UE_RETRY_TIMEOUT     ( 15000U )   /* observed at least 11000 */
 #define BG770_NWSCANSEQ_CMD_MAX_SIZE       ( 30U ) /* Need at least the length of AT+QCFG="nwscanseq",020301,1\0. */
 
-static const TickType_t APP_READY_MAX_WAIT_PERIOD_ticks = pdMS_TO_TICKS(10000);
-static const TickType_t POST_APP_READY_WAIT_PERIOD_ticks = pdMS_TO_TICKS(5000);
+static const TickType_t APP_READY_MAX_WAIT_PERIOD_ticks = pdMS_TO_TICKS( 10000U );
+static const TickType_t POST_APP_READY_WAIT_PERIOD_ticks = pdMS_TO_TICKS( 5000U );
+
+static const TickType_t SHORT_DELAY_ticks = pdMS_TO_TICKS( 10U );
 
 /*-----------------------------------------------------------*/
 
@@ -81,8 +83,11 @@ uint32_t CellularUrcTokenWoPrefixTableSize = sizeof( CellularUrcTokenWoPrefixTab
 
 /*-----------------------------------------------------------*/
 
-static CellularError_t sendAtCommandWithRetryTimeout( CellularContext_t * pContext,
-                                                      const CellularAtReq_t * pAtReq )
+static CellularError_t sendAtCommandWithRetryTimeoutParams( CellularContext_t * pContext,
+                                                            const CellularAtReq_t * pAtReq,
+                                                            uint32_t commandTimeoutMS,
+                                                            uint32_t exponentialBackoffInterCommandBaseMS
+                                                            )
 {
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
@@ -97,10 +102,11 @@ static CellularError_t sendAtCommandWithRetryTimeout( CellularContext_t * pConte
         for( ; tryCount < ENABLE_MODULE_UE_RETRY_COUNT; tryCount++ )
         {
             if (tryCount > 0) {
-                vTaskDelay(pdMS_TO_TICKS(1000UL * (uint32_t)tryCount * tryCount));   // increasing backoff
+                // increasing backoff
+                vTaskDelay( pdMS_TO_TICKS( exponentialBackoffInterCommandBaseMS * (uint32_t)tryCount * tryCount ) );
             }
 
-            pktStatus = _Cellular_TimeoutAtcmdRequestWithCallback( pContext, *pAtReq, ENABLE_MODULE_UE_RETRY_TIMEOUT );
+            pktStatus = _Cellular_TimeoutAtcmdRequestWithCallback( pContext, *pAtReq, commandTimeoutMS );
             cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
 
             if( cellularStatus == CELLULAR_SUCCESS )
@@ -111,6 +117,12 @@ static CellularError_t sendAtCommandWithRetryTimeout( CellularContext_t * pConte
     }
 
     return cellularStatus;
+}
+
+static CellularError_t sendAtCommandWithRetryTimeout( CellularContext_t * pContext,
+                                                      const CellularAtReq_t * pAtReq )
+{
+    return sendAtCommandWithRetryTimeoutParams( pContext, pAtReq, ENABLE_MODULE_UE_RETRY_TIMEOUT, 1000UL );
 }
 
 /*-----------------------------------------------------------*/
@@ -313,14 +325,21 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
         else
         {
             LogError( ( "Cellular_ModuleEnableUE: Failed to wait on Init event flag 'APP_RDY received', waiting %lu ticks", APP_READY_MAX_WAIT_PERIOD_ticks ) );
-            vTaskDelay(APP_READY_MAX_WAIT_PERIOD_ticks);
+            vTaskDelay( APP_READY_MAX_WAIT_PERIOD_ticks );
         }
 
-        vTaskDelay(POST_APP_READY_WAIT_PERIOD_ticks);
+        vTaskDelay( POST_APP_READY_WAIT_PERIOD_ticks );
 
-        /* Disable echo. */
-        atReqGetWithResult.pAtCmd = "ATE0";
-        cellularStatus = sendAtCommandWithRetryTimeout( pContext, &atReqGetWithResult );
+        /* Empty command, looking for 'OK' to indicate presence of module. */
+        atReqGetWithResult.pAtCmd = "AT";
+        cellularStatus = sendAtCommandWithRetryTimeoutParams( pContext, &atReqGetWithResult, 1000UL, 100UL );
+
+        if( cellularStatus == CELLULAR_SUCCESS )
+        {
+            /* Disable echo. */
+            atReqGetWithResult.pAtCmd = "ATE0";
+            cellularStatus = sendAtCommandWithRetryTimeout( pContext, &atReqGetWithResult );
+        }
 
         if( cellularStatus == CELLULAR_SUCCESS )
         {
@@ -330,9 +349,10 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
         }
 
         #ifndef CELLULAR_CONFIG_DISABLE_FLOW_CONTROL
+        // TODO (MV): Want this on but not able to communicate with this setting
             if( cellularStatus == CELLULAR_SUCCESS )
             {
-                vTaskDelay(pdMS_TO_TICKS(10));  // short delay
+                vTaskDelay( SHORT_DELAY_ticks );
 
                 /* Enable RTS/CTS hardware flow control. */
                 atReqGetNoResult.pAtCmd = "AT+IFC=2,2";
@@ -342,7 +362,7 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
 
         if( cellularStatus == CELLULAR_SUCCESS )
         {
-            vTaskDelay(pdMS_TO_TICKS(10));  // short delay
+            vTaskDelay( SHORT_DELAY_ticks );
 
             /* Setting URC output port. */
             #if defined( CELLULAR_BG770_URC_PORT_EMUX ) || defined( BG770_URC_PORT_EMUX )
@@ -355,7 +375,7 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
 
         if( cellularStatus == CELLULAR_SUCCESS )
         {
-            vTaskDelay(pdMS_TO_TICKS(10));  // short delay
+            vTaskDelay( SHORT_DELAY_ticks );
 
             /* Configure Band configuration to all bands. */
             atReqGetNoResult.pAtCmd = "AT+QCFG=\"band\",f,2000000000f0e189f,200000000090f189f";   // TODO (MV): Make this configurable?
@@ -365,7 +385,7 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
         // TODO (MV): This command always returns "ERROR" now after changing boot/init timing
 //        if( cellularStatus == CELLULAR_SUCCESS )
 //        {
-//            vTaskDelay(pdMS_TO_TICKS(10));  // short delay
+//            vTaskDelay( SHORT_DELAY_ticks );
 //
 //            /* Configure RAT(s) to be Searched to LTE. */
 //            atReqGetNoResult.pAtCmd = "AT+QCFG=\"nwscanmode\",3,1";
@@ -374,7 +394,7 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
 
         if( cellularStatus == CELLULAR_SUCCESS )
         {
-            vTaskDelay(pdMS_TO_TICKS(10));  // short delay
+            vTaskDelay( SHORT_DELAY_ticks );
 
             /* Configure Network Category to be Searched under LTE RAT to eMTC only. */
             atReqGetNoResult.pAtCmd = "AT+QCFG=\"iotopmode\",0,1";
@@ -383,7 +403,7 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
 
         if( cellularStatus == CELLULAR_SUCCESS )
         {
-            vTaskDelay(pdMS_TO_TICKS(10));  // short delay
+            vTaskDelay( SHORT_DELAY_ticks );
 
             retAppendRat = appendRatList( ratSelectCmd, CELLULAR_CONFIG_DEFAULT_RAT );
             configASSERT( retAppendRat == true );
@@ -405,7 +425,7 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
 
         if( cellularStatus == CELLULAR_SUCCESS )
         {
-            vTaskDelay(pdMS_TO_TICKS(10));  // short delay
+            vTaskDelay( SHORT_DELAY_ticks );
 
             atReqGetNoResult.pAtCmd = "AT+CFUN=1";
             cellularStatus = sendAtCommandWithRetryTimeout( pContext, &atReqGetNoResult );
