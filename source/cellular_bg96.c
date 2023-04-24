@@ -381,16 +381,6 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
             cellularStatus = sendAtCommandWithRetryTimeout( pContext, &atReqGetNoResult );
         }
 
-        // TODO (MV): This command always returns "ERROR" now after changing boot/init timing
-//        if( cellularStatus == CELLULAR_SUCCESS )
-//        {
-//            vTaskDelay( SHORT_DELAY_ticks );
-//
-//            /* Configure RAT(s) to be Searched to LTE. */
-//            atReqGetNoResult.pAtCmd = "AT+QCFG=\"nwscanmode\",3,1";
-//            cellularStatus = sendAtCommandWithRetryTimeout( pContext, &atReqGetNoResult );
-//        }
-
         if( cellularStatus == CELLULAR_SUCCESS )
         {
             vTaskDelay( SHORT_DELAY_ticks );
@@ -471,7 +461,7 @@ CellularError_t Cellular_ModuleEnableUrc( CellularContext_t * pContext )
     atReqGetNoResult.pAtCmd = "AT+CTZR=1";
     ( void ) _Cellular_AtcmdRequestWithCallback( pContext, atReqGetNoResult );
 
-    return cellularStatus;  // TODO (MV): Why are these call's return code used?
+    return cellularStatus;  // TODO (MV): Why are these call's return code not used?
 }
 
 /*-----------------------------------------------------------*/
