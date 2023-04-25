@@ -376,8 +376,11 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
         {
             vTaskDelay( SHORT_DELAY_ticks );
 
-            /* Configure Band configuration to all bands. */
-            atReqGetNoResult.pAtCmd = "AT+QCFG=\"band\",f,2000000000f0e189f,200000000090f189f";   // TODO (MV): Make this configurable?
+            /* Configure Band configuration to all bands.
+             * NOTE: Order - GSM, LTE, NB-IoT.
+             * GSM (bandmask: 'f') and NB-IoT (bandmask: '200000000090f189f') irrelevant at this point so send '0'
+             * which means don't update */
+            atReqGetNoResult.pAtCmd = "AT+QCFG=\"band\",0,2000000000f0e189f,0";   // TODO (MV): Make this configurable?
             cellularStatus = sendAtCommandWithRetryTimeout( pContext, &atReqGetNoResult );
         }
 
