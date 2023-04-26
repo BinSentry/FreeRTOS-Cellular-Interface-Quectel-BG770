@@ -380,7 +380,7 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
              * NOTE: Order - GSM, LTE, NB-IoT.
              * GSM (bandmask: 'f') and NB-IoT (bandmask: '200000000090f189f') irrelevant at this point so send '0'
              * which means don't update */
-            atReqGetNoResult.pAtCmd = "AT+QCFG=\"band\",0,2000000000f0e189f,0";   // TODO (MV): Make this configurable?
+            atReqGetNoResult.pAtCmd = "AT+QCFG=\"band\",0,2000000000f0e189f,0";   // FUTURE: Make this configurable
             cellularStatus = sendAtCommandWithRetryTimeout( pContext, &atReqGetNoResult );
         }
 
