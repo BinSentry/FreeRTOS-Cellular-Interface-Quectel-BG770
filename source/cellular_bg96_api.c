@@ -5400,7 +5400,7 @@ CellularError_t Cellular_SetModuleBaudRateSetting( CellularHandle_t cellularHand
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
     char cmdBuf[ CELLULAR_AT_CMD_MAX_SIZE ] = { '\0' };
-    CellularAtReq_t atReqSetBaudRate = {0 };
+    CellularAtReq_t atReqSetBaudRate = { 0 };
 
     atReqSetBaudRate.pAtCmd = cmdBuf;
     atReqSetBaudRate.atCmdType = CELLULAR_AT_NO_RESULT;
@@ -5425,13 +5425,80 @@ CellularError_t Cellular_SetModuleBaudRateSetting( CellularHandle_t cellularHand
         ( void ) snprintf( cmdBuf, CELLULAR_AT_CMD_MAX_SIZE, "%s%lu",
                            "AT+IPR=",
                            baudRate );
-        LogDebug( ( "Baud rate setting: %s ", cmdBuf ) );
-        pktStatus = _Cellular_AtcmdRequestWithCallback(pContext, atReqSetBaudRate );
+        LogDebug( ( "Cellular_SetModuleBaudRateSetting: baud rate setting: %s", cmdBuf ) );
+        pktStatus = _Cellular_AtcmdRequestWithCallback( pContext, atReqSetBaudRate );
 
         if( pktStatus != CELLULAR_PKT_STATUS_OK )
         {
             LogError( ( "Cellular_SetModuleBaudRateSetting: couldn't set baud rate" ) );
             cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
+        }
+    }
+
+    return cellularStatus;
+}
+
+/*-----------------------------------------------------------*/
+
+CellularError_t Cellular_PowerDown( CellularHandle_t cellularHandle,
+                                    CellularPowerDownMode_t powerDownMode )
+{
+    CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    char cmdBuf[ CELLULAR_AT_CMD_MAX_SIZE ] = { '\0' };
+    CellularAtReq_t atReqSetBaudRate = { 0 };
+    uint8_t mode = 1;
+
+    atReqSetBaudRate.pAtCmd = cmdBuf;
+    atReqSetBaudRate.atCmdType = CELLULAR_AT_NO_RESULT;
+    atReqSetBaudRate.pAtRspPrefix = NULL;
+    atReqSetBaudRate.respCallback = NULL;
+    atReqSetBaudRate.pData = NULL;
+    atReqSetBaudRate.dataLen = 0;
+
+    cellularStatus = _Cellular_CheckLibraryStatus( pContext );
+
+    if( cellularStatus != CELLULAR_SUCCESS )
+    {
+        LogError( ( "_Cellular_CheckLibraryStatus failed" ) );
+    }
+    else
+    {
+        /* Form the AT command. */
+
+        switch( powerDownMode )
+        {
+            case CELLULAR_POWER_DOWN_MODE_IMMEDIATE:
+                mode = 0;
+                break;
+
+            case CELLULAR_POWER_DOWN_MODE_NORMAL:
+                mode = 1;
+                break;
+
+            default:
+                LogError( ( "Cellular_PowerDown: invalid power down mode requested, mode: %d", powerDownMode ) );
+                cellularStatus = CELLULAR_BAD_PARAMETER;
+                break;
+        }
+
+        if( cellularStatus == CELLULAR_SUCCESS )
+        {
+            /* MISRA Ref 21.6.1 [Use of snprintf] */
+            /* More details at: https://github.com/FreeRTOS/FreeRTOS-Cellular-Interface/blob/main/MISRA.md#rule-216 */
+            /* coverity[misra_c_2012_rule_21_6_violation]. */
+            ( void ) snprintf( cmdBuf, CELLULAR_AT_CMD_MAX_SIZE, "%s%d",
+                               "AT+QPOWD=",
+                               mode );
+            LogDebug( ( "Cellular_PowerDown: power down command: %s", cmdBuf ) );
+            pktStatus = _Cellular_AtcmdRequestWithCallback( pContext, atReqSetBaudRate );
+
+            if( pktStatus != CELLULAR_PKT_STATUS_OK )
+            {
+                LogError( ( "Cellular_PowerDown: couldn't send power down" ) );
+                cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
+            }
         }
     }
 
