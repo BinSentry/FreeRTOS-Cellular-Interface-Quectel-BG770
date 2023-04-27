@@ -5447,15 +5447,15 @@ CellularError_t Cellular_PowerDown( CellularHandle_t cellularHandle,
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
     char cmdBuf[ CELLULAR_AT_CMD_MAX_SIZE ] = { '\0' };
-    CellularAtReq_t atReqSetBaudRate = { 0 };
+    CellularAtReq_t atReqPowerDown = { 0 };
     uint8_t mode = 1;
 
-    atReqSetBaudRate.pAtCmd = cmdBuf;
-    atReqSetBaudRate.atCmdType = CELLULAR_AT_NO_RESULT;
-    atReqSetBaudRate.pAtRspPrefix = NULL;
-    atReqSetBaudRate.respCallback = NULL;
-    atReqSetBaudRate.pData = NULL;
-    atReqSetBaudRate.dataLen = 0;
+    atReqPowerDown.pAtCmd = cmdBuf;
+    atReqPowerDown.atCmdType = CELLULAR_AT_NO_RESULT;
+    atReqPowerDown.pAtRspPrefix = NULL;
+    atReqPowerDown.respCallback = NULL;
+    atReqPowerDown.pData = NULL;
+    atReqPowerDown.dataLen = 0;
 
     cellularStatus = _Cellular_CheckLibraryStatus( pContext );
 
@@ -5492,11 +5492,78 @@ CellularError_t Cellular_PowerDown( CellularHandle_t cellularHandle,
                                "AT+QPOWD=",
                                mode );
             LogDebug( ( "Cellular_PowerDown: power down command: %s", cmdBuf ) );
-            pktStatus = _Cellular_AtcmdRequestWithCallback( pContext, atReqSetBaudRate );
+            pktStatus = _Cellular_AtcmdRequestWithCallback(pContext, atReqPowerDown );
 
             if( pktStatus != CELLULAR_PKT_STATUS_OK )
             {
                 LogError( ( "Cellular_PowerDown: couldn't send power down" ) );
+                cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
+            }
+        }
+    }
+
+    return cellularStatus;
+}
+
+/*-----------------------------------------------------------*/
+
+CellularError_t Cellular_SetPSMEntry( CellularHandle_t cellularHandle,
+                                      CellularPSMEnterMode_t psmEnterMode )
+{
+    CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    char cmdBuf[ CELLULAR_AT_CMD_MAX_SIZE ] = { '\0' };
+    CellularAtReq_t atReqSetPSMEnter = { 0 };
+    uint8_t mode = 1;
+
+    atReqSetPSMEnter.pAtCmd = cmdBuf;
+    atReqSetPSMEnter.atCmdType = CELLULAR_AT_NO_RESULT;
+    atReqSetPSMEnter.pAtRspPrefix = NULL;
+    atReqSetPSMEnter.respCallback = NULL;
+    atReqSetPSMEnter.pData = NULL;
+    atReqSetPSMEnter.dataLen = 0;
+
+    cellularStatus = _Cellular_CheckLibraryStatus( pContext );
+
+    if( cellularStatus != CELLULAR_SUCCESS )
+    {
+        LogError( ( "_Cellular_CheckLibraryStatus failed" ) );
+    }
+    else
+    {
+        /* Form the AT command. */
+
+        switch( psmEnterMode )
+        {
+            case CELLULAR_PSM_ENTER_MODE_NORMAL:
+                mode = 0;
+                break;
+
+            case CELLULAR_PSM_ENTER_MODE_IMMEDIATE:
+                mode = 1;
+                break;
+
+            default:
+                LogError( ( "Cellular_SetPSMEntry: invalid PSM enter mode requested, mode: %d", psmEnterMode ) );
+                cellularStatus = CELLULAR_BAD_PARAMETER;
+                break;
+        }
+
+        if( cellularStatus == CELLULAR_SUCCESS )
+        {
+            /* MISRA Ref 21.6.1 [Use of snprintf] */
+            /* More details at: https://github.com/FreeRTOS/FreeRTOS-Cellular-Interface/blob/main/MISRA.md#rule-216 */
+            /* coverity[misra_c_2012_rule_21_6_violation]. */
+            ( void ) snprintf( cmdBuf, CELLULAR_AT_CMD_MAX_SIZE, "%s%d",
+                               "AT+QCFG=\"psm/enter\",",
+                               mode );
+            LogDebug( ( "Cellular_SetPSMEntry: PSM enter command: %s", cmdBuf ) );
+            pktStatus = _Cellular_AtcmdRequestWithCallback(pContext, atReqSetPSMEnter );
+
+            if( pktStatus != CELLULAR_PKT_STATUS_OK )
+            {
+                LogError( ( "Cellular_SetPSMEntry: couldn't send PSM enter mode" ) );
                 cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
             }
         }
