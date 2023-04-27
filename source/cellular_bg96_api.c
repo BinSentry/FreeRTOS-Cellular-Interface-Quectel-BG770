@@ -1754,7 +1754,6 @@ static CellularPktStatus_t _Cellular_RecvFuncGetPsmConfigSettings( CellularConte
                                                                    uint16_t dataLen )
 {
     char * pInputLine = NULL, * pToken = NULL;
-    uint8_t tokenIndex = 0;
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
     CellularATError_t atCoreStatus = CELLULAR_AT_SUCCESS;
     CellularPsmConfigSettings_t * pPsmConfigSettings = NULL;
