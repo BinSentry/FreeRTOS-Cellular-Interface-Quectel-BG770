@@ -2082,16 +2082,26 @@ static void _dnsResultCallback( cellularModuleContext_t * pModuleContext,
 {
     CellularATError_t atCoreStatus = CELLULAR_AT_SUCCESS;
     char * pToken = NULL, * pDnsResultStr = pDnsResult;
-    int32_t dnsResultNumber = 0;
+    int32_t dnsResultCode = -1, dnsResultNumber = 0;
     cellularDnsQueryResult_t dnsQueryResult = CELLULAR_DNS_QUERY_UNKNOWN;
 
     if( pModuleContext != NULL )
     {
         if( pModuleContext->dnsResultNumber == ( uint8_t ) 0 )
         {
-            atCoreStatus = Cellular_ATGetNextTok( &pDnsResultStr, &pToken );    // TODO (MV): Ignoring result code? This is so stupid, fix!
-                                                                                //            Should be sending error code if result code is not 0 (success).
-                                                                                //            Otherwise have a 60s timeout for no reason, so, so stupid! What a waste of power
+            atCoreStatus = Cellular_ATGetNextTok( &pDnsResultStr, &pToken );
+
+            if( atCoreStatus == CELLULAR_AT_SUCCESS )
+            {
+                atCoreStatus = Cellular_ATStrtoi( pToken, 10, &dnsResultCode );
+
+                /* dnsResultCode of 0 indicates successful operation */
+                if( ( atCoreStatus == CELLULAR_AT_SUCCESS ) && ( dnsResultCode != 0 ) )
+                {
+                    atCoreStatus = CELLULAR_AT_ERROR;
+                    LogDebug( ( "_dnsResultCallback result code error, err: %ld", dnsResultCode ) );
+                }
+            }
 
             if( atCoreStatus == CELLULAR_AT_SUCCESS )
             {
@@ -2106,10 +2116,29 @@ static void _dnsResultCallback( cellularModuleContext_t * pModuleContext,
                     ( dnsResultNumber <= ( int32_t ) UINT8_MAX ) )
                 {
                     pModuleContext->dnsResultNumber = ( uint8_t ) dnsResultNumber;
+                    /* dnsResultNumber of zero indicates no further response, indicate query unsuccessful */
+                    if( pModuleContext->dnsResultNumber == 0 )
+                    {
+                        atCoreStatus = CELLULAR_AT_ERROR;
+                        LogWarn( ( "_dnsResultCallback IP count is zero, no DNS result" ) );
+                    }
                 }
                 else
                 {
                     LogDebug( ( "_dnsResultCallback convert string failed %s", pToken ) );
+                }
+            }
+
+            if( atCoreStatus != CELLULAR_AT_SUCCESS )
+            {
+                pDnsUsrData[0] = '\0';  // explicit indication of empty IP address string
+                ( void ) registerDnsEventCallback( pModuleContext, NULL, NULL );
+                dnsQueryResult = CELLULAR_DNS_QUERY_FAILED;
+
+                /* send explicit failure instead of only relying on DNS request timeout */
+                if( xQueueSend( pModuleContext->pktDnsQueue, &dnsQueryResult, ( TickType_t ) 0 ) != pdPASS )
+                {
+                    LogError( ( "_dnsResultCallback pktDnsQueue send fail on DNS query failure" ) );
                 }
             }
         }
@@ -2123,12 +2152,12 @@ static void _dnsResultCallback( cellularModuleContext_t * pModuleContext,
 
             if( xQueueSend( pModuleContext->pktDnsQueue, &dnsQueryResult, ( TickType_t ) 0 ) != pdPASS )
             {
-                LogDebug( ( "_dnsResultCallback sends pktDnsQueue fail" ) );
+                LogError( ( "_dnsResultCallback pktDnsQueue send fail on successful DNS query result" ) );
             }
         }
         else
         {
-            LogDebug( ( "_dnsResultCallback spurious DNS response" ) );
+            LogWarn( ( "_dnsResultCallback spurious DNS response" ) );
         }
     }
 }
@@ -3747,7 +3776,6 @@ static CellularPktStatus_t fileUploadDataPrefix( void * pCallbackContext,
     return pktStatus;
 }
 
-// TODO (MV): Confirm post data response still works
 CellularError_t Cellular_UploadFileToModem( CellularHandle_t cellularHandle,
                                             const char * pcFilename,
                                             const uint8_t * pFile,
