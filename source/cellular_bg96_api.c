@@ -2980,7 +2980,7 @@ CellularError_t Cellular_SocketRecv( CellularHandle_t cellularHandle,
         /* The return value of snprintf is not used.
          * The max length of the string is fixed and checked offline. */
         /* coverity[misra_c_2012_rule_21_6_violation]. */
-        ( void ) snprintf( cmdBuf, CELLULAR_AT_CMD_TYPICAL_MAX_SIZE, "%s%ld,%ld",
+        ( void ) snprintf( cmdBuf, CELLULAR_AT_CMD_TYPICAL_MAX_SIZE, "%s%lu,%lu",
                            ( socketHandle->socketProtocol == CELLULAR_SOCKET_PROTOCOL_SSL_OVER_TCP ?
                                     "AT+QSSLRECV=" : "AT+QIRD=" ),
                            socketHandle->socketId, recvLen );
@@ -2994,6 +2994,220 @@ CellularError_t Cellular_SocketRecv( CellularHandle_t cellularHandle,
         {
             /* Reset data handling parameters. */
             LogError( ( "_Cellular_RecvData: Data Receive fail, pktStatus: %d", pktStatus ) );
+            cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
+        }
+    }
+
+    return cellularStatus;
+}
+
+/*-----------------------------------------------------------*/
+
+static bool _parseSocketReceiveStats( char * pRecvStatsPayload,
+                                      CellularSocketReceiveStatistics_t * pReceiveStats )
+{
+    char * pToken = NULL, * pTmpRecvStatsPayload = pRecvStatsPayload;
+    uint32_t tempValue = 0;
+    bool parseStatus = true;
+    CellularATError_t atCoreStatus = CELLULAR_AT_SUCCESS;
+
+    if( ( pReceiveStats == NULL ) || ( pRecvStatsPayload == NULL ) )
+    {
+        LogError( ( "_parseSocketReceiveStats: Invalid Input Parameters" ) );
+        parseStatus = false;
+    }
+
+    if( ( parseStatus == true ) && (Cellular_ATGetNextTok(&pTmpRecvStatsPayload, &pToken ) == CELLULAR_AT_SUCCESS ) )
+    {
+        atCoreStatus = Cellular_ATStrtoui( pToken, 10, &tempValue );
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            pReceiveStats->totalReceiveLength = tempValue;
+        }
+        else
+        {
+            LogError( ( "_parseSocketReceiveStats: Error in processing total receive length. Token %s", pToken ) );
+            parseStatus = false;
+        }
+    }
+    else
+    {
+        parseStatus = false;
+    }
+
+    if( ( parseStatus == true ) && (Cellular_ATGetNextTok(&pTmpRecvStatsPayload, &pToken ) == CELLULAR_AT_SUCCESS ) )
+    {
+        atCoreStatus = Cellular_ATStrtoui( pToken, 10, &tempValue );
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            pReceiveStats->haveReadLength = tempValue;
+        }
+        else
+        {
+            LogError( ( "_parseSocketReceiveStats: Error in processing have read length. Token %s", pToken ) );
+            parseStatus = false;
+        }
+    }
+    else
+    {
+        parseStatus = false;
+    }
+
+    if( ( parseStatus == true ) && (Cellular_ATGetNextTok(&pTmpRecvStatsPayload, &pToken ) == CELLULAR_AT_SUCCESS ) )
+    {
+        atCoreStatus = Cellular_ATStrtoui( pToken, 10, &tempValue );
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            pReceiveStats->unreadLength = tempValue;
+        }
+        else
+        {
+            LogError( ( "_parseSocketReceiveStats: Error in processing unread length. pToken %s", pToken ) );
+            parseStatus = false;
+        }
+    }
+    else
+    {
+        parseStatus = false;
+    }
+
+    return parseStatus;
+}
+
+/*-----------------------------------------------------------*/
+
+/* FreeRTOS Cellular Library types. */
+/* coverity[misra_c_2012_rule_8_13_violation] */
+static CellularPktStatus_t _Cellular_RecvFuncGetSocketReceiveStats( CellularContext_t * pContext,
+                                                                    const CellularATCommandResponse_t * pAtResp,
+                                                                    void * pData,
+                                                                    uint16_t dataLen )
+{
+    char * pInputLine = NULL;
+    CellularSocketReceiveStatistics_t * pReceiveStats = ( CellularSocketReceiveStatistics_t * ) pData;
+    bool parseStatus = true;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    CellularATError_t atCoreStatus = CELLULAR_AT_SUCCESS;
+
+    if( pContext == NULL )
+    {
+        pktStatus = CELLULAR_PKT_STATUS_INVALID_HANDLE;
+    }
+    else if( ( pReceiveStats == NULL ) || ( dataLen != sizeof( CellularSocketReceiveStatistics_t ) ) )
+    {
+        pktStatus = CELLULAR_PKT_STATUS_BAD_PARAM;
+    }
+    else if( ( pAtResp == NULL ) || ( pAtResp->pItm == NULL ) || ( pAtResp->pItm->pLine == NULL ) )
+    {
+        LogError( ( "GetSocketReceiveStats: Input Line passed is NULL" ) );
+        pktStatus = CELLULAR_PKT_STATUS_FAILURE;
+    }
+    else
+    {
+        pInputLine = pAtResp->pItm->pLine;
+        atCoreStatus = Cellular_ATRemovePrefix( &pInputLine );
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATRemoveAllWhiteSpaces( pInputLine );
+        }
+
+        if( atCoreStatus != CELLULAR_AT_SUCCESS )
+        {
+            pktStatus = _Cellular_TranslateAtCoreStatus( atCoreStatus );
+        }
+    }
+
+    if( pktStatus == CELLULAR_PKT_STATUS_OK )
+    {
+        parseStatus = _parseSocketReceiveStats( pInputLine, pReceiveStats );
+
+        if( parseStatus != true )
+        {
+            pReceiveStats->totalReceiveLength = 0;
+            pReceiveStats->haveReadLength = 0;
+            pReceiveStats->unreadLength = 0;
+            pktStatus = CELLULAR_PKT_STATUS_FAILURE;
+        }
+    }
+
+    return pktStatus;
+}
+
+/*-----------------------------------------------------------*/
+
+/* FreeRTOS Cellular Library API. */
+/* coverity[misra_c_2012_rule_8_7_violation] */
+/* coverity[misra_c_2012_rule_8_13_violation] */
+CellularError_t Cellular_GetSocketReceiveStats( CellularHandle_t cellularHandle,
+                                                CellularSocketHandle_t socketHandle,
+                                                CellularSocketReceiveStatistics_t * receiveStatistics)
+{
+    CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    char cmdBuf[ CELLULAR_AT_CMD_TYPICAL_MAX_SIZE ] = { '\0' };
+    CellularAtReq_t atReqSocketRecvStats =
+    {
+        cmdBuf,
+        CELLULAR_AT_WITH_PREFIX,
+        ( socketHandle->socketProtocol == CELLULAR_SOCKET_PROTOCOL_SSL_OVER_TCP ? "+QSSLRECV" : "+QIRD" ),
+        _Cellular_RecvFuncGetSocketReceiveStats,
+        ( void * ) receiveStatistics,
+        sizeof( CellularSocketReceiveStatistics_t ),
+    };
+
+    cellularStatus = _Cellular_CheckLibraryStatus( pContext );
+
+    if( cellularStatus != CELLULAR_SUCCESS )
+    {
+        LogError( ( "_Cellular_CheckLibraryStatus failed." ) );
+    }
+    else if( socketHandle == NULL )
+    {
+        LogError( ( "Cellular_GetSocketReceiveStats: Invalid socket handle." ) );
+        cellularStatus = CELLULAR_INVALID_HANDLE;
+    }
+    else if( receiveStatistics == NULL )
+    {
+        LogError( ( "Cellular_GetSocketReceiveStats: Bad input Param." ) );
+        cellularStatus = CELLULAR_BAD_PARAMETER;
+    }
+    else if( socketHandle->socketState != SOCKETSTATE_CONNECTED )
+    {
+        /* Check the socket connection state. */
+        LogInfo( ( "Cellular_GetSocketReceiveStats: socket state %d is not connected.", socketHandle->socketState ) );
+
+        if( ( socketHandle->socketState == SOCKETSTATE_ALLOCATED ) || ( socketHandle->socketState == SOCKETSTATE_CONNECTING ) )
+        {
+            cellularStatus = CELLULAR_SOCKET_NOT_CONNECTED;
+        }
+        else
+        {
+            cellularStatus = CELLULAR_SOCKET_CLOSED;
+        }
+    }
+    else
+    {
+        /* Form the AT command. */
+
+        /* The return value of snprintf is not used.
+         * The max length of the string is fixed and checked offline. */
+        /* coverity[misra_c_2012_rule_21_6_violation]. */
+        ( void ) snprintf( cmdBuf, CELLULAR_AT_CMD_TYPICAL_MAX_SIZE, "%s%lu,0",
+                           ( socketHandle->socketProtocol == CELLULAR_SOCKET_PROTOCOL_SSL_OVER_TCP ?
+                             "AT+QSSLRECV=" : "AT+QIRD=" ),
+                           socketHandle->socketId);
+        pktStatus = _Cellular_TimeoutAtcmdRequestWithCallback( pContext, atReqSocketRecvStats,
+                                                               SOCKET_DISCONNECT_PACKET_REQ_TIMEOUT_MS );  // TODO (MV): Real timeout?
+
+        if( pktStatus != CELLULAR_PKT_STATUS_OK )
+        {
+            /* Reset data handling parameters. */
+            LogError( ( "_Cellular_RecvDataStats: Data Receive Stats fail, pktStatus: %d", pktStatus ) );
             cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
         }
     }
