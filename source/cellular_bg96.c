@@ -372,6 +372,25 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
             cellularStatus = sendAtCommandWithRetryTimeout( pContext, &atReqGetNoResult );
         }
 
+#ifdef CELLULAR_QUECTEL_ENABLE_DEBUG_UART
+        if( cellularStatus == CELLULAR_SUCCESS )
+        {
+            vTaskDelay( SHORT_DELAY_ticks );
+
+            /* Setting debug output enable. */
+            atReqGetNoResult.pAtCmd = "AT+QCFGEXT=\"debug\",1";
+            CellularError_t debugResult = sendAtCommandWithRetryTimeout( pContext, &atReqGetNoResult );
+            if( debugResult != CELLULAR_SUCCESS )
+            {
+                LogWarn( ( "Cellular_ModuleEnableUE: Debug output enable failed" ) );
+            }
+        }
+        else
+        {
+            LogWarn( ( "Cellular_ModuleEnableUE: Debug output enable skipped due to error" ) );
+        }
+#endif
+
         if( cellularStatus == CELLULAR_SUCCESS )
         {
             vTaskDelay( SHORT_DELAY_ticks );
