@@ -29,13 +29,12 @@
 #include <stdlib.h>
 #include <limits.h>
 
-#include "cellular_platform.h"
 /* The config header is always included first. */
 #ifndef CELLULAR_DO_NOT_USE_CUSTOM_CONFIG
 #include "cellular_config.h"
 #endif
 #include "cellular_config_defaults.h"
-
+#include "cellular_platform.h"
 #include "cellular_types.h"
 #include "cellular_api.h"
 #include "cellular_common_api.h"
@@ -1962,8 +1961,15 @@ static CellularPktStatus_t sslSocketRecvDataPrefix( void * pCallbackContext,
 
             if( i == localLineLength )
             {
-                LogDebug( ( "Data prefix invalid line : %s", pLocalLine ) );
+                LogDebug( ( "Data prefix invalid line : \"%s\". ", pLocalLine ) );
                 pDataStart = NULL;
+            }
+        } else {
+            if ( ( lineLength > 0 ) && ( ( lineLength != 4 ) || ( strncmp( pLine, "OK\r\n", 4 ) != 0 ) ) )
+            {
+                (void) strncpy( pLocalLine, pLine, lineLength );
+                pLocalLine[ lineLength ] = '\0';
+                LogError( ( "Data prefix match failed : \"%s\" (len: %lu). ", pLocalLine, lineLength ) );
             }
         }
 
@@ -1989,13 +1995,13 @@ static CellularPktStatus_t sslSocketRecvDataPrefix( void * pCallbackContext,
                     *pDataLength = ( uint32_t ) tempValue;
                 }
 
-                LogDebug( ( "DataLength %p at pktIo = %d", pDataStart, *pDataLength ) );
+                LogDebug( ( "DataLength %p at pktIo = %d. ", pDataStart, *pDataLength ) );
             }
             else
             {
                 *pDataLength = 0;
                 pDataStart = NULL;
-                LogError( ( "Data response received with wrong size" ) );
+                LogError( ( "Data response received with wrong size. " ) );
             }
         }
 
@@ -2993,7 +2999,7 @@ CellularError_t Cellular_SocketRecv( CellularHandle_t cellularHandle,
         if( pktStatus != CELLULAR_PKT_STATUS_OK )
         {
             /* Reset data handling parameters. */
-            LogError( ( "_Cellular_RecvData: Data Receive fail, pktStatus: %d", pktStatus ) );
+            LogError( ( "_Cellular_RecvData: Data Receive fail, pktStatus: %d. ", pktStatus ) );
             cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
         }
     }
