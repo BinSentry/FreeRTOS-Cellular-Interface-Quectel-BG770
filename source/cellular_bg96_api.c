@@ -2087,8 +2087,9 @@ static void _dnsResultCallback( cellularModuleContext_t * pModuleContext,
                                 char * pDnsUsrData )
 {
     CellularATError_t atCoreStatus = CELLULAR_AT_SUCCESS;
+    CellularATError_t atCoreStatusNonCritical = CELLULAR_AT_SUCCESS;
     char * pToken = NULL, * pDnsResultStr = pDnsResult;
-    int32_t dnsResultCode = -1, dnsResultNumber = 0;
+    int32_t dnsResultCode = -1, dnsResultNumber = -1, dnsTimeToLiveSeconds = -1;    // negative values to indicate never set
     cellularDnsQueryResult_t dnsQueryResult = CELLULAR_DNS_QUERY_UNKNOWN;
 
     if( pModuleContext != NULL )
@@ -2102,10 +2103,18 @@ static void _dnsResultCallback( cellularModuleContext_t * pModuleContext,
                 atCoreStatus = Cellular_ATStrtoi( pToken, 10, &dnsResultCode );
 
                 /* dnsResultCode of 0 indicates successful operation */
-                if( ( atCoreStatus == CELLULAR_AT_SUCCESS ) && ( dnsResultCode != 0 ) )
+                if( ( atCoreStatus == CELLULAR_AT_SUCCESS ) && ( dnsResultCode >= 0 ) )
+                {
+                    if( dnsResultCode != 0 )
+                    {
+                        atCoreStatus = CELLULAR_AT_ERROR;
+                        LogWarn( ( "_dnsResultCallback result code error, err: %ld.", dnsResultCode ) );
+                    }
+                }
+                else
                 {
                     atCoreStatus = CELLULAR_AT_ERROR;
-                    LogDebug( ( "_dnsResultCallback result code error, err: %ld", dnsResultCode ) );
+                    LogError( ( "_dnsResultCallback convert result code string failed %s.", pToken ) );
                 }
             }
 
@@ -2131,12 +2140,37 @@ static void _dnsResultCallback( cellularModuleContext_t * pModuleContext,
                 }
                 else
                 {
-                    LogDebug( ( "_dnsResultCallback convert string failed %s", pToken ) );
+                    atCoreStatus = CELLULAR_AT_ERROR;
+                    LogError( ( "_dnsResultCallback convert IP count string failed %s.", pToken ) );
+                }
+            }
+
+            if( atCoreStatus == CELLULAR_AT_SUCCESS )
+            {
+                atCoreStatusNonCritical = Cellular_ATGetNextTok( &pDnsResultStr, &pToken );
+
+                if( atCoreStatusNonCritical == CELLULAR_AT_SUCCESS )
+                {
+                    atCoreStatusNonCritical = Cellular_ATStrtoi( pToken, 10, &dnsTimeToLiveSeconds );
+
+                    if( atCoreStatusNonCritical == CELLULAR_AT_SUCCESS )
+                    {
+                        // FUTURE: Lower this to debug level
+                        LogInfo( ( "_dnsResultCallback result code: %ld, ip count: %ld, ttl: %ld s.",
+                                   dnsResultCode, dnsResultNumber, dnsTimeToLiveSeconds ) );
+                    }
+                    else
+                    {
+                        LogWarn( ( "_dnsResultCallback convert DNS TTL string failed %s.", pToken ) );
+                    }
                 }
             }
 
             if( atCoreStatus != CELLULAR_AT_SUCCESS )
             {
+                LogError( ( "_dnsResultCallback error, err: %d, result code: %ld, ip count: %ld, ttl: %ld s.",
+                            atCoreStatus, dnsResultCode, dnsResultNumber, dnsTimeToLiveSeconds ) );
+
                 pDnsUsrData[0] = '\0';  // explicit indication of empty IP address string
                 ( void ) registerDnsEventCallback( pModuleContext, NULL, NULL );
                 dnsQueryResult = CELLULAR_DNS_QUERY_FAILED;
