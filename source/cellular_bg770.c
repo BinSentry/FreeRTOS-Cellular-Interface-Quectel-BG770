@@ -35,7 +35,7 @@
 #include "cellular_platform.h"
 #include "cellular_common.h"
 #include "cellular_common_portable.h"
-#include "cellular_bg96.h"
+#include "cellular_bg770.h"
 
 /*-----------------------------------------------------------*/
 

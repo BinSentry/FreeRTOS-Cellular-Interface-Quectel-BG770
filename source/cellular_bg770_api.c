@@ -40,7 +40,7 @@
 #include "cellular_common_api.h"
 #include "cellular_common.h"
 #include "cellular_at_core.h"
-#include "cellular_bg96.h"
+#include "cellular_bg770.h"
 
 /*-----------------------------------------------------------*/
 
