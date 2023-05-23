@@ -252,6 +252,9 @@ static bool _parseSignalQuality( char * pQcsqPayload,
         parseStatus = false;
     }
 
+    pSignalInfo->ber = CELLULAR_INVALID_SIGNAL_VALUE;
+    pSignalInfo->bars = CELLULAR_INVALID_SIGNAL_BAR_VALUE;
+
     if( ( parseStatus == true ) && ( Cellular_ATGetNextTok( &pTmpQcsqPayload, &pToken ) == CELLULAR_AT_SUCCESS ) )
     {
         if( ( strcmp( pToken, "eMTC" ) != 0 ) &&
@@ -988,7 +991,7 @@ static CellularATError_t parsePdnStatusContextState( char * pToken,
 
     if( atCoreStatus == CELLULAR_AT_SUCCESS )
     {
-        // TODO (MV): Why is this state not checked more closely (according to documentation only 0 = Deactivated and 1 = Activated and all other valuds invalid
+        // TODO (MV): Why is this state not checked more closely (according to documentation only 0 = Deactivated and 1 = Activated and all other values invalid
         if( ( tempValue >= 0 ) &&
             ( tempValue <= ( int32_t ) UINT8_MAX ) )
         {
