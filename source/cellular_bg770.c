@@ -287,6 +287,7 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
         NULL,
         0
     };
+    // NOTE: commands need to use this configuration until echo is turned off
     CellularAtReq_t atReqGetWithResult =
     {
         NULL,
@@ -315,16 +316,16 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
 
             if( ( uxBits & INIT_EVT_MASK_APP_RDY_RECEIVED ) != 0 )
             {
-                LogInfo( ( "Cellular_ModuleEnableUE: 'APP_RDY' URC received" ) );
+                LogInfo( ( "Cellular_ModuleEnableUE: 'APP_RDY' URC received." ) );
             }
             else
             {
-                LogWarn( ( "Cellular_ModuleEnableUE: Init event flag 'APP_RDY received' timeout (after waiting %lu ticks)", APP_READY_MAX_WAIT_PERIOD_ticks ) );
+                LogWarn( ( "Cellular_ModuleEnableUE: Init event flag 'APP_RDY received' timeout (after waiting %lu ticks).", APP_READY_MAX_WAIT_PERIOD_ticks ) );
             }
         }
         else
         {
-            LogError( ( "Cellular_ModuleEnableUE: Failed to wait on Init event flag 'APP_RDY received', waiting %lu ticks", APP_READY_MAX_WAIT_PERIOD_ticks ) );
+            LogError( ( "Cellular_ModuleEnableUE: Failed to wait on Init event flag 'APP_RDY received', waiting %lu ticks.", APP_READY_MAX_WAIT_PERIOD_ticks ) );
             vTaskDelay( APP_READY_MAX_WAIT_PERIOD_ticks );
         }
 
@@ -333,12 +334,28 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
         /* Empty command, looking for 'OK' to indicate presence of module. */
         atReqGetWithResult.pAtCmd = "AT";
         cellularStatus = sendAtCommandWithRetryTimeoutParams( pContext, &atReqGetWithResult, 1000UL, 100UL );
+        if( cellularStatus == CELLULAR_SUCCESS )
+        {
+            LogInfo( ( "Cellular_ModuleEnableUE: \"%s\" command success, found modem.", atReqGetWithResult.pAtCmd ) );
+        }
+        else
+        {
+            LogError( ( "Cellular_ModuleEnableUE: \"%s\" command failed.", atReqGetWithResult.pAtCmd ) );
+        }
 
         if( cellularStatus == CELLULAR_SUCCESS )
         {
             /* Disable echo. */
             atReqGetWithResult.pAtCmd = "ATE0";
             cellularStatus = sendAtCommandWithRetryTimeout( pContext, &atReqGetWithResult );
+            if( cellularStatus == CELLULAR_SUCCESS )
+            {
+                LogInfo( ( "Cellular_ModuleEnableUE: \"%s\" command success.", atReqGetWithResult.pAtCmd ) );
+            }
+            else
+            {
+                LogError( ( "Cellular_ModuleEnableUE: \"%s\" command failed.", atReqGetWithResult.pAtCmd ) );
+            }
         }
 
         if( cellularStatus == CELLULAR_SUCCESS )
@@ -346,6 +363,14 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
             /* Disable DTR function. */
             atReqGetNoResult.pAtCmd = "AT&D0";
             cellularStatus = sendAtCommandWithRetryTimeout( pContext, &atReqGetNoResult );
+            if( cellularStatus == CELLULAR_SUCCESS )
+            {
+                LogInfo( ( "Cellular_ModuleEnableUE: \"%s\" command success.", atReqGetNoResult.pAtCmd ) );
+            }
+            else
+            {
+                LogError( ( "Cellular_ModuleEnableUE: \"%s\" command failed.", atReqGetNoResult.pAtCmd ) );
+            }
         }
 
         #ifndef CELLULAR_CONFIG_DISABLE_FLOW_CONTROL
@@ -356,6 +381,14 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
                 /* Enable RTS/CTS hardware flow control. */
                 atReqGetNoResult.pAtCmd = "AT+IFC=2,2";
                 cellularStatus = sendAtCommandWithRetryTimeout( pContext, &atReqGetNoResult );
+                if( cellularStatus == CELLULAR_SUCCESS )
+                {
+                    LogInfo( ( "Cellular_ModuleEnableUE: \"%s\" command success.", atReqGetNoResult.pAtCmd ) );
+                }
+                else
+                {
+                    LogError( ( "Cellular_ModuleEnableUE: \"%s\" command failed.", atReqGetNoResult.pAtCmd ) );
+                }
             }
         #endif
 
@@ -370,6 +403,14 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
                 atReqGetNoResult.pAtCmd = "AT+QURCCFG=\"urcport\",\"main\"";
             #endif
             cellularStatus = sendAtCommandWithRetryTimeout( pContext, &atReqGetNoResult );
+            if( cellularStatus == CELLULAR_SUCCESS )
+            {
+                LogInfo( ( "Cellular_ModuleEnableUE: \"%s\" command success.", atReqGetNoResult.pAtCmd ) );
+            }
+            else
+            {
+                LogError( ( "Cellular_ModuleEnableUE: \"%s\" command failed.", atReqGetNoResult.pAtCmd ) );
+            }
         }
 
 #ifdef CELLULAR_QUECTEL_ENABLE_DEBUG_UART
@@ -401,6 +442,14 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
              * which means don't update */
             atReqGetNoResult.pAtCmd = "AT+QCFG=\"band\",0,2000000000f0e189f,0";   // FUTURE: Make this configurable
             cellularStatus = sendAtCommandWithRetryTimeout( pContext, &atReqGetNoResult );
+            if( cellularStatus == CELLULAR_SUCCESS )
+            {
+                LogInfo( ( "Cellular_ModuleEnableUE: \"%s\" command success.", atReqGetNoResult.pAtCmd ) );
+            }
+            else
+            {
+                LogError( ( "Cellular_ModuleEnableUE: \"%s\" command failed.", atReqGetNoResult.pAtCmd ) );
+            }
         }
 
         if( cellularStatus == CELLULAR_SUCCESS )
@@ -410,6 +459,14 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
             /* Configure Network Category to be Searched under LTE RAT to eMTC only. */
             atReqGetNoResult.pAtCmd = "AT+QCFG=\"iotopmode\",0,1";
             cellularStatus = sendAtCommandWithRetryTimeout( pContext, &atReqGetNoResult );
+            if( cellularStatus == CELLULAR_SUCCESS )
+            {
+                LogInfo( ( "Cellular_ModuleEnableUE: \"%s\" command success.", atReqGetNoResult.pAtCmd ) );
+            }
+            else
+            {
+                LogError( ( "Cellular_ModuleEnableUE: \"%s\" command failed.", atReqGetNoResult.pAtCmd ) );
+            }
         }
 
         if( cellularStatus == CELLULAR_SUCCESS )
@@ -432,6 +489,14 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
             strcat( ratSelectCmd, ",1" ); /* Take effect immediately. */
             atReqGetNoResult.pAtCmd = ratSelectCmd;
             cellularStatus = sendAtCommandWithRetryTimeout( pContext, &atReqGetNoResult );
+            if( cellularStatus == CELLULAR_SUCCESS )
+            {
+                LogInfo( ( "Cellular_ModuleEnableUE: \"%s\" command success.", atReqGetNoResult.pAtCmd ) );
+            }
+            else
+            {
+                LogError( ( "Cellular_ModuleEnableUE: \"%s\" command failed.", atReqGetNoResult.pAtCmd ) );
+            }
         }
 
         if( cellularStatus == CELLULAR_SUCCESS )
@@ -440,6 +505,14 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
 
             atReqGetNoResult.pAtCmd = "AT+CFUN=1";
             cellularStatus = sendAtCommandWithRetryTimeout( pContext, &atReqGetNoResult );
+            if( cellularStatus == CELLULAR_SUCCESS )
+            {
+                LogInfo( ( "Cellular_ModuleEnableUE: \"%s\" command success.", atReqGetNoResult.pAtCmd ) );
+            }
+            else
+            {
+                LogError( ( "Cellular_ModuleEnableUE: \"%s\" command failed.", atReqGetNoResult.pAtCmd ) );
+            }
         }
     }
 
