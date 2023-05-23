@@ -131,6 +131,12 @@ typedef struct _socketDataRecv
 
 static bool _parseSignalQuality( char * pQcsqPayload,
                                  CellularSignalInfo_t * pSignalInfo );
+static bool _parseQuectelSignalQuality( char * pQcsqPayload,
+                                        CellularSignalInfo_t * pSignalInfo );
+static CellularPktStatus_t _Cellular_RecvFuncGetQuectelSignalInfo( CellularContext_t * pContext,
+                                                                   const CellularATCommandResponse_t * pAtResp,
+                                                                   void * pData,
+                                                                   uint16_t dataLen );
 static CellularPktStatus_t _Cellular_RecvFuncGetSignalInfo( CellularContext_t * pContext,
                                                             const CellularATCommandResponse_t * pAtResp,
                                                             void * pData,
@@ -238,8 +244,8 @@ static CellularPktStatus_t socketSendDataPrefix( void * pCallbackContext,
 
 /*-----------------------------------------------------------*/
 
-static bool _parseSignalQuality( char * pQcsqPayload,
-                                 CellularSignalInfo_t * pSignalInfo )
+static bool _parseQuectelSignalQuality( char * pQcsqPayload,
+                                        CellularSignalInfo_t * pSignalInfo )
 {
     char * pToken = NULL, * pTmpQcsqPayload = pQcsqPayload;
     int32_t tempValue = 0;
@@ -248,7 +254,7 @@ static bool _parseSignalQuality( char * pQcsqPayload,
 
     if( ( pSignalInfo == NULL ) || ( pQcsqPayload == NULL ) )
     {
-        LogError( ( "_parseSignalQuality: Invalid Input Parameters" ) );
+        LogError( ( "_parseQuectelSignalQuality: Invalid Input Parameters" ) );
         parseStatus = false;
     }
 
@@ -265,7 +271,7 @@ static bool _parseSignalQuality( char * pQcsqPayload,
     }
     else
     {
-        LogDebug( ( "_parseSignalQuality: No Valid RAT in QCSQ Response" ) );
+        LogDebug( ( "_parseQuectelSignalQuality: No Valid RAT in QCSQ Response" ) );
         parseStatus = false;
     }
 
@@ -279,7 +285,7 @@ static bool _parseSignalQuality( char * pQcsqPayload,
         }
         else
         {
-            LogError( ( "_parseSignalQuality: Error in processing RSSI. Token %s", pToken ) );
+            LogError( ( "_parseQuectelSignalQuality: Error in processing RSSI. Token %s", pToken ) );
             parseStatus = false;
         }
     }
@@ -298,7 +304,7 @@ static bool _parseSignalQuality( char * pQcsqPayload,
         }
         else
         {
-            LogError( ( "_parseSignalQuality: Error in processing RSRP. Token %s", pToken ) );
+            LogError( ( "_parseQuectelSignalQuality: Error in processing RSRP. Token %s", pToken ) );
             parseStatus = false;
         }
     }
@@ -319,7 +325,7 @@ static bool _parseSignalQuality( char * pQcsqPayload,
         }
         else
         {
-            LogError( ( "_parseSignalQuality: Error in processing SINR. pToken %s", pToken ) );
+            LogError( ( "_parseQuectelSignalQuality: Error in processing SINR. pToken %s", pToken ) );
             parseStatus = false;
         }
     }
@@ -338,7 +344,157 @@ static bool _parseSignalQuality( char * pQcsqPayload,
         }
         else
         {
-            LogError( ( "_parseSignalQuality: Error in processing RSRQ. Token %s", pToken ) );
+            LogError( ( "_parseQuectelSignalQuality: Error in processing RSRQ. Token %s", pToken ) );
+            parseStatus = false;
+        }
+    }
+    else
+    {
+        parseStatus = false;
+    }
+
+    return parseStatus;
+}
+
+/*-----------------------------------------------------------*/
+
+/* FreeRTOS Cellular Library types. */
+/* coverity[misra_c_2012_rule_8_13_violation] */
+static CellularPktStatus_t _Cellular_RecvFuncGetQuectelSignalInfo( CellularContext_t * pContext,
+                                                                   const CellularATCommandResponse_t * pAtResp,
+                                                                   void * pData,
+                                                                   uint16_t dataLen )
+{
+    char * pInputLine = NULL;
+    CellularSignalInfo_t * pSignalInfo = ( CellularSignalInfo_t * ) pData;
+    bool parseStatus = true;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    CellularATError_t atCoreStatus = CELLULAR_AT_SUCCESS;
+
+    if( pContext == NULL )
+    {
+        pktStatus = CELLULAR_PKT_STATUS_INVALID_HANDLE;
+    }
+    else if( ( pSignalInfo == NULL ) || ( dataLen != sizeof( CellularSignalInfo_t ) ) )
+    {
+        pktStatus = CELLULAR_PKT_STATUS_BAD_PARAM;
+    }
+    else if( ( pAtResp == NULL ) || ( pAtResp->pItm == NULL ) || ( pAtResp->pItm->pLine == NULL ) )
+    {
+        LogError( ( "GetQuectelSignalInfo: Input Line passed is NULL" ) );
+        pktStatus = CELLULAR_PKT_STATUS_FAILURE;
+    }
+    else
+    {
+        pInputLine = pAtResp->pItm->pLine;
+        atCoreStatus = Cellular_ATRemovePrefix( &pInputLine );
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATRemoveAllDoubleQuote( pInputLine );
+        }
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATRemoveAllWhiteSpaces( pInputLine );
+        }
+
+        if( atCoreStatus != CELLULAR_AT_SUCCESS )
+        {
+            pktStatus = _Cellular_TranslateAtCoreStatus( atCoreStatus );
+        }
+    }
+
+    if( pktStatus == CELLULAR_PKT_STATUS_OK )
+    {
+        parseStatus = _parseQuectelSignalQuality(pInputLine, pSignalInfo);
+
+        if( parseStatus != true )
+        {
+            pSignalInfo->rssi = CELLULAR_INVALID_SIGNAL_VALUE;
+            pSignalInfo->rsrp = CELLULAR_INVALID_SIGNAL_VALUE;
+            pSignalInfo->rsrq = CELLULAR_INVALID_SIGNAL_VALUE;
+            pSignalInfo->ber = CELLULAR_INVALID_SIGNAL_VALUE;
+            pSignalInfo->bars = CELLULAR_INVALID_SIGNAL_BAR_VALUE;
+            pktStatus = CELLULAR_PKT_STATUS_FAILURE;
+        }
+    }
+
+    return pktStatus;
+}
+
+/*-----------------------------------------------------------*/
+
+static bool _parseSignalQuality( char * pQcsqPayload,
+                                 CellularSignalInfo_t * pSignalInfo )
+{
+    char * pToken = NULL, * pTmpQcsqPayload = pQcsqPayload;
+    int32_t tempValue = 0;
+    bool parseStatus = true;
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+    CellularATError_t atCoreStatus = CELLULAR_AT_SUCCESS;
+
+    if( ( pSignalInfo == NULL ) || ( pQcsqPayload == NULL ) )
+    {
+        LogError( ( "_parseSignalQuality: Invalid Input Parameters" ) );
+        parseStatus = false;
+    }
+
+    // not present in response
+    pSignalInfo->rsrp = CELLULAR_INVALID_SIGNAL_VALUE;
+    pSignalInfo->rsrq = CELLULAR_INVALID_SIGNAL_VALUE;
+    pSignalInfo->bars = CELLULAR_INVALID_SIGNAL_BAR_VALUE;
+
+    if( ( parseStatus == true ) && ( Cellular_ATGetNextTok( &pTmpQcsqPayload, &pToken ) == CELLULAR_AT_SUCCESS ) )
+    {
+        atCoreStatus = Cellular_ATStrtoi( pToken, 10, &tempValue );
+
+        if( ( tempValue >= INT16_MIN ) && ( tempValue <= ( int32_t ) INT16_MAX ) )
+        {
+            cellularStatus = _Cellular_ConvertCsqSignalRssi( ( int16_t ) tempValue, &pSignalInfo->rssi );
+
+            if( cellularStatus != CELLULAR_SUCCESS )
+            {
+                atCoreStatus = CELLULAR_AT_BAD_PARAMETER;
+            }
+        }
+        else
+        {
+            atCoreStatus = CELLULAR_AT_ERROR;
+        }
+
+        if( atCoreStatus != CELLULAR_AT_SUCCESS )
+        {
+            LogError( ( "_parseSignalQuality: Error in processing RSSI. Token %s", pToken ) );
+            parseStatus = false;
+        }
+    }
+    else
+    {
+        parseStatus = false;
+    }
+
+    if( ( parseStatus == true ) && ( Cellular_ATGetNextTok( &pTmpQcsqPayload, &pToken ) == CELLULAR_AT_SUCCESS ) )
+    {
+        atCoreStatus = Cellular_ATStrtoi( pToken, 10, &tempValue );
+
+        if( ( tempValue >= INT16_MIN ) && ( tempValue <= ( int32_t ) INT16_MAX ) )
+        {
+            cellularStatus = _Cellular_ConvertCsqSignalBer( ( int16_t ) tempValue, &pSignalInfo->ber );
+
+            if( cellularStatus != CELLULAR_SUCCESS )
+            {
+                atCoreStatus = CELLULAR_AT_BAD_PARAMETER;
+            }
+        }
+        else
+        {
+            atCoreStatus = CELLULAR_AT_ERROR;
+        }
+
+        if( atCoreStatus != CELLULAR_AT_SUCCESS )
+        {
+            LogError( ( "_parseSignalQuality: Error in processing BER. Token %s", pToken ) );
             parseStatus = false;
         }
     }
@@ -2898,12 +3054,13 @@ CellularError_t Cellular_GetSignalInfo( CellularHandle_t cellularHandle,
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
     CellularRat_t rat = CELLULAR_RAT_INVALID;
+    CellularSignalInfo_t signalInfo2 = { 0 };   // used to get BER
     CellularAtReq_t atReqQuerySignalInfo =
     {
         "AT+QCSQ",
         CELLULAR_AT_WITH_PREFIX,
         "+QCSQ",
-        _Cellular_RecvFuncGetSignalInfo,
+        _Cellular_RecvFuncGetQuectelSignalInfo,
         pSignalInfo,
         sizeof( CellularSignalInfo_t ),
     };
@@ -2931,6 +3088,30 @@ CellularError_t Cellular_GetSignalInfo( CellularHandle_t cellularHandle,
         {
             /* If the convert failed, the API will return CELLULAR_INVALID_SIGNAL_BAR_VALUE in bars field. */
             ( void ) _Cellular_ComputeSignalBars( rat, pSignalInfo );
+        }
+
+        cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
+    }
+
+    if( cellularStatus == CELLULAR_SUCCESS )
+    {
+        // retrieve BER (and RSSI if invalid from QCSQ)
+        atReqQuerySignalInfo.pAtCmd = "AT+CSQ";
+        atReqQuerySignalInfo.atCmdType = CELLULAR_AT_WITH_PREFIX;
+        atReqQuerySignalInfo.pAtRspPrefix = "+CSQ";
+        atReqQuerySignalInfo.respCallback = _Cellular_RecvFuncGetSignalInfo;
+        atReqQuerySignalInfo.pData = &signalInfo2;
+        atReqQuerySignalInfo.dataLen = sizeof( signalInfo2 );
+
+        pktStatus = _Cellular_AtcmdRequestWithCallback( pContext, atReqQuerySignalInfo );
+
+        if( pktStatus == CELLULAR_PKT_STATUS_OK )
+        {
+            pSignalInfo->ber = signalInfo2.ber;
+
+            if (pSignalInfo->rssi == CELLULAR_INVALID_SIGNAL_VALUE) {
+                pSignalInfo->rssi = signalInfo2.rssi;
+            }
         }
 
         cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
@@ -3891,7 +4072,7 @@ static bool _parseFileUploadResult(char * pQfuplPayload,
 
     if( ( pFileUploadResult == NULL ) || (pQfuplPayload == NULL ) )
     {
-        LogError( ( "_parseSignalQuality: Invalid Input Parameters" ) );
+        LogError( ( "_parseFileUploadResult: Invalid Input Parameters" ) );
         parseStatus = false;
     }
 
@@ -4179,7 +4360,7 @@ static bool _parseFileCRCs( char * pQfcrcPayload,
 
     if( ( pFileCRCs == NULL ) || ( pQfcrcPayload == NULL ) )
     {
-        LogError( ( "_parseSignalQuality: Invalid Input Parameters" ) );
+        LogError( ( "_parseFileCRCs: Invalid Input Parameters" ) );
         parseStatus = false;
     }
 
