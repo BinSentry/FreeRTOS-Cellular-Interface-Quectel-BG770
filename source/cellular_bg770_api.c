@@ -445,62 +445,70 @@ static bool _parseSignalQuality( char * pQcsqPayload,
     pSignalInfo->rsrq = CELLULAR_INVALID_SIGNAL_VALUE;
     pSignalInfo->bars = CELLULAR_INVALID_SIGNAL_BAR_VALUE;
 
-    if( ( parseStatus == true ) && ( Cellular_ATGetNextTok( &pTmpQcsqPayload, &pToken ) == CELLULAR_AT_SUCCESS ) )
+    if( parseStatus == true )
     {
-        atCoreStatus = Cellular_ATStrtoi( pToken, 10, &tempValue );
-
-        if( ( tempValue >= INT16_MIN ) && ( tempValue <= ( int32_t ) INT16_MAX ) )
+        if( Cellular_ATGetNextTok( &pTmpQcsqPayload, &pToken ) == CELLULAR_AT_SUCCESS )
         {
-            cellularStatus = _Cellular_ConvertCsqSignalRssi( ( int16_t ) tempValue, &pSignalInfo->rssi );
+            atCoreStatus = Cellular_ATStrtoi( pToken, 10, &tempValue );
 
-            if( cellularStatus != CELLULAR_SUCCESS )
+            if( ( tempValue >= INT16_MIN ) && ( tempValue <= ( int32_t ) INT16_MAX ) )
             {
-                atCoreStatus = CELLULAR_AT_BAD_PARAMETER;
+                cellularStatus = _Cellular_ConvertCsqSignalRssi( ( int16_t ) tempValue, &pSignalInfo->rssi );
+
+                if( cellularStatus != CELLULAR_SUCCESS )
+                {
+                    atCoreStatus = CELLULAR_AT_BAD_PARAMETER;
+                }
+            }
+            else
+            {
+                atCoreStatus = CELLULAR_AT_ERROR;
+            }
+
+            if( atCoreStatus != CELLULAR_AT_SUCCESS )
+            {
+                LogError( ( "_parseSignalQuality: Error in processing RSSI. Token %s", pToken ) );
+                parseStatus = false;
             }
         }
         else
         {
-            atCoreStatus = CELLULAR_AT_ERROR;
-        }
-
-        if( atCoreStatus != CELLULAR_AT_SUCCESS )
-        {
-            LogError( ( "_parseSignalQuality: Error in processing RSSI. Token %s", pToken ) );
+            LogError( ( "_parseSignalQuality: Error, missing RSSI" ) );
             parseStatus = false;
         }
     }
-    else
-    {
-        parseStatus = false;
-    }
 
-    if( ( parseStatus == true ) && ( Cellular_ATGetNextTok( &pTmpQcsqPayload, &pToken ) == CELLULAR_AT_SUCCESS ) )
+    if( parseStatus == true )
     {
-        atCoreStatus = Cellular_ATStrtoi( pToken, 10, &tempValue );
-
-        if( ( tempValue >= INT16_MIN ) && ( tempValue <= ( int32_t ) INT16_MAX ) )
+        if( Cellular_ATGetNextTok( &pTmpQcsqPayload, &pToken ) == CELLULAR_AT_SUCCESS )
         {
-            cellularStatus = _Cellular_ConvertCsqSignalBer( ( int16_t ) tempValue, &pSignalInfo->ber );
+            atCoreStatus = Cellular_ATStrtoi( pToken, 10, &tempValue );
 
-            if( cellularStatus != CELLULAR_SUCCESS )
+            if( ( tempValue >= INT16_MIN ) && ( tempValue <= ( int32_t ) INT16_MAX ) )
             {
-                atCoreStatus = CELLULAR_AT_BAD_PARAMETER;
+                cellularStatus = _Cellular_ConvertCsqSignalBer( ( int16_t ) tempValue, &pSignalInfo->ber );
+
+                if( cellularStatus != CELLULAR_SUCCESS )
+                {
+                    atCoreStatus = CELLULAR_AT_BAD_PARAMETER;
+                }
+            }
+            else
+            {
+                atCoreStatus = CELLULAR_AT_ERROR;
+            }
+
+            if( atCoreStatus != CELLULAR_AT_SUCCESS )
+            {
+                LogError( ( "_parseSignalQuality: Error in processing BER. Token %s", pToken ) );
+                parseStatus = false;
             }
         }
         else
         {
-            atCoreStatus = CELLULAR_AT_ERROR;
-        }
-
-        if( atCoreStatus != CELLULAR_AT_SUCCESS )
-        {
-            LogError( ( "_parseSignalQuality: Error in processing BER. Token %s", pToken ) );
+            LogError( ( "_parseSignalQuality: Error, missing BER" ) );
             parseStatus = false;
         }
-    }
-    else
-    {
-        parseStatus = false;
     }
 
     return parseStatus;
