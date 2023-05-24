@@ -1395,7 +1395,7 @@ static CellularError_t buildSocketConnect( CellularSocketHandle_t socketHandle,
         {
             /* Form the AT command. */
             snprintfLength = snprintf( pCmdBuf, cmdBufLength,
-                                       "%s%d,%d,%ld,\"%s\",%d,%d",
+                                       "%s%d,%d,%lu,\"%s\",%d,%d",
                                        "AT+QSSLOPEN=",
                                        socketHandle->contextId,
                                        socketHandle->sslContextId,
@@ -1418,7 +1418,7 @@ static CellularError_t buildSocketConnect( CellularSocketHandle_t socketHandle,
 
             /* Form the AT command. */
             snprintfLength = snprintf( pCmdBuf, CELLULAR_AT_CMD_MAX_SIZE,
-                                       "%s%d,%ld,\"%s\",\"%s\",%d,%d,%d",
+                                       "%s%d,%lu,\"%s\",\"%s\",%d,%d,%d",
                                        "AT+QIOPEN=",
                                        socketHandle->contextId,
                                        socketHandle->socketId,
@@ -3537,7 +3537,7 @@ CellularError_t Cellular_SocketSend( CellularHandle_t cellularHandle,
         /* The return value of snprintf is not used.
          * The max length of the string is fixed and checked offline. */
         /* coverity[misra_c_2012_rule_21_6_violation]. */
-        ( void ) snprintf( cmdBuf, CELLULAR_AT_CMD_TYPICAL_MAX_SIZE, "%s%ld,%ld",
+        ( void ) snprintf( cmdBuf, CELLULAR_AT_CMD_TYPICAL_MAX_SIZE, "%s%lu,%lu",
                            ( socketHandle->socketProtocol == CELLULAR_SOCKET_PROTOCOL_SSL_OVER_TCP ?
                                     "AT+QSSLSEND=" : "AT+QISEND=" ),
                            socketHandle->socketId, atDataReqSocketSend.dataLen );
@@ -3604,7 +3604,7 @@ CellularError_t Cellular_SocketClose( CellularHandle_t cellularHandle,
             /* The return value of snprintf is not used.
              * The max length of the string is fixed and checked offline. */
             /* coverity[misra_c_2012_rule_21_6_violation]. */
-            ( void ) snprintf( cmdBuf, CELLULAR_AT_CMD_TYPICAL_MAX_SIZE, "%s%ld",
+            ( void ) snprintf( cmdBuf, CELLULAR_AT_CMD_TYPICAL_MAX_SIZE, "%s%lu",
                                ( socketHandle->socketProtocol == CELLULAR_SOCKET_PROTOCOL_SSL_OVER_TCP ?
                                         "AT+QSSLCLOSE=" : "AT+QICLOSE=" ),
                                socketHandle->socketId );
@@ -3613,9 +3613,9 @@ CellularError_t Cellular_SocketClose( CellularHandle_t cellularHandle,
 
             if( pktStatus != CELLULAR_PKT_STATUS_OK )
             {
-                // TODO (MV): Why is this being ignored? This results in potentially orphaning the Quectel socket.
+                // TODO (MV): ***HIGH PRIORITY*** Why is this being ignored? This results in potentially orphaning the Quectel socket.
                 //            Should handle the cases where the modem didn't receive the command successfully by retrying
-                LogError( ( "Cellular_SocketClose: Socket close failed, cmdBuf:%s, PktRet: %d", cmdBuf, pktStatus ) );
+                LogError( ( "*** Cellular_SocketClose: Socket close failed, cmdBuf:%s, PktRet: %d <---------", cmdBuf, pktStatus ) );
             }
         }
 
