@@ -316,7 +316,7 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
 
             if( ( uxBits & INIT_EVT_MASK_APP_RDY_RECEIVED ) != 0 )
             {
-                LogInfo( ( "Cellular_ModuleEnableUE: 'APP_RDY' URC received." ) );
+                LogDebug( ( "Cellular_ModuleEnableUE: 'APP_RDY' URC received." ) );
             }
             else
             {
@@ -336,11 +336,11 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
         cellularStatus = sendAtCommandWithRetryTimeoutParams( pContext, &atReqGetWithResult, 1000UL, 100UL );
         if( cellularStatus == CELLULAR_SUCCESS )
         {
-            LogInfo( ( "Cellular_ModuleEnableUE: \"%s\" command success, found modem.", atReqGetWithResult.pAtCmd ) );
+            LogDebug( ( "Cellular_ModuleEnableUE: '%s' command success, found modem.", atReqGetWithResult.pAtCmd ) );
         }
         else
         {
-            LogError( ( "Cellular_ModuleEnableUE: \"%s\" command failed.", atReqGetWithResult.pAtCmd ) );
+            LogError( ( "Cellular_ModuleEnableUE: '%s' command failed.", atReqGetWithResult.pAtCmd ) );
         }
 
         if( cellularStatus == CELLULAR_SUCCESS )
@@ -350,11 +350,11 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
             cellularStatus = sendAtCommandWithRetryTimeout( pContext, &atReqGetWithResult );
             if( cellularStatus == CELLULAR_SUCCESS )
             {
-                LogInfo( ( "Cellular_ModuleEnableUE: \"%s\" command success.", atReqGetWithResult.pAtCmd ) );
+                LogDebug( ( "Cellular_ModuleEnableUE: '%s' command success.", atReqGetWithResult.pAtCmd ) );
             }
             else
             {
-                LogError( ( "Cellular_ModuleEnableUE: \"%s\" command failed.", atReqGetWithResult.pAtCmd ) );
+                LogError( ( "Cellular_ModuleEnableUE: '%s' command failed.", atReqGetWithResult.pAtCmd ) );
             }
         }
 
@@ -365,11 +365,11 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
             cellularStatus = sendAtCommandWithRetryTimeout( pContext, &atReqGetNoResult );
             if( cellularStatus == CELLULAR_SUCCESS )
             {
-                LogInfo( ( "Cellular_ModuleEnableUE: \"%s\" command success.", atReqGetNoResult.pAtCmd ) );
+                LogDebug( ( "Cellular_ModuleEnableUE: '%s' command success.", atReqGetNoResult.pAtCmd ) );
             }
             else
             {
-                LogError( ( "Cellular_ModuleEnableUE: \"%s\" command failed.", atReqGetNoResult.pAtCmd ) );
+                LogError( ( "Cellular_ModuleEnableUE: '%s' command failed.", atReqGetNoResult.pAtCmd ) );
             }
         }
 
@@ -383,11 +383,11 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
                 cellularStatus = sendAtCommandWithRetryTimeout( pContext, &atReqGetNoResult );
                 if( cellularStatus == CELLULAR_SUCCESS )
                 {
-                    LogInfo( ( "Cellular_ModuleEnableUE: \"%s\" command success.", atReqGetNoResult.pAtCmd ) );
+                    LogDebug( ( "Cellular_ModuleEnableUE: '%s' command success.", atReqGetNoResult.pAtCmd ) );
                 }
                 else
                 {
-                    LogError( ( "Cellular_ModuleEnableUE: \"%s\" command failed.", atReqGetNoResult.pAtCmd ) );
+                    LogError( ( "Cellular_ModuleEnableUE: '%s' command failed.", atReqGetNoResult.pAtCmd ) );
                 }
             }
         #endif
@@ -405,11 +405,11 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
             cellularStatus = sendAtCommandWithRetryTimeout( pContext, &atReqGetNoResult );
             if( cellularStatus == CELLULAR_SUCCESS )
             {
-                LogInfo( ( "Cellular_ModuleEnableUE: \"%s\" command success.", atReqGetNoResult.pAtCmd ) );
+                LogDebug( ( "Cellular_ModuleEnableUE: '%s' command success.", atReqGetNoResult.pAtCmd ) );
             }
             else
             {
-                LogError( ( "Cellular_ModuleEnableUE: \"%s\" command failed.", atReqGetNoResult.pAtCmd ) );
+                LogError( ( "Cellular_ModuleEnableUE: '%s' command failed.", atReqGetNoResult.pAtCmd ) );
             }
         }
 
@@ -444,11 +444,11 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
             cellularStatus = sendAtCommandWithRetryTimeout( pContext, &atReqGetNoResult );
             if( cellularStatus == CELLULAR_SUCCESS )
             {
-                LogInfo( ( "Cellular_ModuleEnableUE: \"%s\" command success.", atReqGetNoResult.pAtCmd ) );
+                LogDebug( ( "Cellular_ModuleEnableUE: '%s' command success.", atReqGetNoResult.pAtCmd ) );
             }
             else
             {
-                LogError( ( "Cellular_ModuleEnableUE: \"%s\" command failed.", atReqGetNoResult.pAtCmd ) );
+                LogError( ( "Cellular_ModuleEnableUE: '%s' command failed.", atReqGetNoResult.pAtCmd ) );
             }
         }
 
@@ -461,11 +461,11 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
             cellularStatus = sendAtCommandWithRetryTimeout( pContext, &atReqGetNoResult );
             if( cellularStatus == CELLULAR_SUCCESS )
             {
-                LogInfo( ( "Cellular_ModuleEnableUE: \"%s\" command success.", atReqGetNoResult.pAtCmd ) );
+                LogDebug( ( "Cellular_ModuleEnableUE: '%s' command success.", atReqGetNoResult.pAtCmd ) );
             }
             else
             {
-                LogError( ( "Cellular_ModuleEnableUE: \"%s\" command failed.", atReqGetNoResult.pAtCmd ) );
+                LogError( ( "Cellular_ModuleEnableUE: '%s' command failed.", atReqGetNoResult.pAtCmd ) );
             }
         }
 
@@ -491,11 +491,11 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
             cellularStatus = sendAtCommandWithRetryTimeout( pContext, &atReqGetNoResult );
             if( cellularStatus == CELLULAR_SUCCESS )
             {
-                LogInfo( ( "Cellular_ModuleEnableUE: \"%s\" command success.", atReqGetNoResult.pAtCmd ) );
+                LogDebug( ( "Cellular_ModuleEnableUE: '%s' command success.", atReqGetNoResult.pAtCmd ) );
             }
             else
             {
-                LogError( ( "Cellular_ModuleEnableUE: \"%s\" command failed.", atReqGetNoResult.pAtCmd ) );
+                LogError( ( "Cellular_ModuleEnableUE: '%s' command failed.", atReqGetNoResult.pAtCmd ) );
             }
         }
 
@@ -507,11 +507,11 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
             cellularStatus = sendAtCommandWithRetryTimeout( pContext, &atReqGetNoResult );
             if( cellularStatus == CELLULAR_SUCCESS )
             {
-                LogInfo( ( "Cellular_ModuleEnableUE: \"%s\" command success.", atReqGetNoResult.pAtCmd ) );
+                LogDebug( ( "Cellular_ModuleEnableUE: '%s' command success.", atReqGetNoResult.pAtCmd ) );
             }
             else
             {
-                LogError( ( "Cellular_ModuleEnableUE: \"%s\" command failed.", atReqGetNoResult.pAtCmd ) );
+                LogError( ( "Cellular_ModuleEnableUE: '%s' command failed.", atReqGetNoResult.pAtCmd ) );
             }
         }
     }
