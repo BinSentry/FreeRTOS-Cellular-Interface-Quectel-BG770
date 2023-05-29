@@ -3561,7 +3561,8 @@ CellularError_t Cellular_SocketSend( CellularHandle_t cellularHandle,
 /* FreeRTOS Cellular Library API. */
 /* coverity[misra_c_2012_rule_8_7_violation] */
 CellularError_t Cellular_SocketClose( CellularHandle_t cellularHandle,
-                                      CellularSocketHandle_t socketHandle )
+                                      CellularSocketHandle_t socketHandle,
+                                      bool removeSocketOnError )
 {
     CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
@@ -3613,14 +3614,16 @@ CellularError_t Cellular_SocketClose( CellularHandle_t cellularHandle,
 
             if( pktStatus != CELLULAR_PKT_STATUS_OK )
             {
-                // TODO (MV): ***HIGH PRIORITY*** Why is this being ignored? This results in potentially orphaning the Quectel socket.
-                //            Should handle the cases where the modem didn't receive the command successfully by retrying
                 LogError( ( "*** Cellular_SocketClose: Socket close failed, cmdBuf:%s, PktRet: %d <---------", cmdBuf, pktStatus ) );
+                cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
             }
         }
 
-        /* Ignore the result from the info, and force to remove the socket. */
-        cellularStatus = _Cellular_RemoveSocketData( pContext, socketHandle );
+        if( (cellularStatus == CELLULAR_SUCCESS ) || ( removeSocketOnError ) )
+        {
+            /* Ignore the result from the info, and force to remove the socket. */
+            cellularStatus = _Cellular_RemoveSocketData(pContext, socketHandle);
+        }
     }
 
     return cellularStatus;
