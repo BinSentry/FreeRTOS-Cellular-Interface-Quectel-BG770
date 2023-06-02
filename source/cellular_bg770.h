@@ -32,8 +32,6 @@
 #endif
 /* *INDENT-ON* */
 
-// TODO (MV): Check these times
-
 /* AT Command timeout for PDN activation */
 #define PDN_ACTIVATION_PACKET_REQ_TIMEOUT_MS       ( 150000UL )
 

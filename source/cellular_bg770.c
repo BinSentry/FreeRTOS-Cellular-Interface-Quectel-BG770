@@ -556,7 +556,7 @@ CellularError_t Cellular_ModuleEnableUrc( CellularContext_t * pContext )
     atReqGetNoResult.pAtCmd = "AT+CTZR=1";
     ( void ) _Cellular_AtcmdRequestWithCallback( pContext, atReqGetNoResult );
 
-    return cellularStatus;  // TODO (MV): Why are these call's return code not used?
+    return cellularStatus;
 }
 
 /*-----------------------------------------------------------*/
