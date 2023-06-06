@@ -1155,7 +1155,7 @@ static CellularATError_t parsePdnStatusContextState( char * pToken,
 
     if( atCoreStatus == CELLULAR_AT_SUCCESS )
     {
-        // TODO (MV): Why is this state not checked more closely (according to documentation only 0 = Deactivated and 1 = Activated and all other values invalid
+        // FUTURE: Why is this state not checked more closely (according to documentation only 0 = Deactivated and 1 = Activated and all other values invalid
         if( ( tempValue >= 0 ) &&
             ( tempValue <= ( int32_t ) UINT8_MAX ) )
         {
@@ -1181,12 +1181,12 @@ static CellularATError_t parsePdnStatusContextType( char * pToken,
 
     if( atCoreStatus == CELLULAR_AT_SUCCESS )
     {
-        // TODO (MV): IPV4V6 value (3) not supported, should have better validation here
-        if( ( tempValue >= 0 ) && ( tempValue < ( int32_t ) CELLULAR_PDN_CONTEXT_TYPE_MAX ) )
+        if( ( tempValue >= 0 ) && ( tempValue < ( int32_t ) CELLULAR_PDN_CONTEXT_TYPE_MAX )
+            && ( tempValue != CELLULAR_PDN_CONTEXT_IPV4V6 ) )
         {
             /* Variable "tempValue" is ensured that it is valid and within
              * a valid range. Hence, assigning the value of the variable to
-             * pdnContextType with a enum cast. */
+             * pdnContextType with an enum cast. */
             /* coverity[misra_c_2012_rule_10_5_violation] */
             pPdnStatusBuffers->pdnContextType = ( CellularPdnContextType_t ) tempValue;
         }
@@ -1573,7 +1573,7 @@ static CellularATError_t parseQpsmsMode( char * pToken,
 
     if( atCoreStatus == CELLULAR_AT_SUCCESS )
     {
-        if( ( tempValue >= 0 ) && ( tempValue <= ( int32_t ) UINT8_MAX ) )  // TODO (MV): Only 0 and 1 are valid
+        if( ( tempValue >= 0 ) && ( tempValue <= ( int32_t ) UINT8_MAX ) )  // FUTURE: Only 0 and 1 are valid
         {
             pPsmSettings->mode = ( uint8_t ) tempValue;
         }
@@ -1793,8 +1793,8 @@ static CellularPktStatus_t _Cellular_RecvFuncGetRatPriority( CellularContext_t *
             atCoreStatus = Cellular_ATGetNextTok( &pInputLine, &pToken );
         }
 
-        // TODO (MV): Is this actually guaranteed to always be 3 RATs, what if automatic is used or GSM and NB-IoT are non-existent?
-        // TODO (MV): Change this to support up to 3 RATs and set all unused entries to invalid and support default of 00 [Automatic (eMTC → NB-IoT)]
+        // FUTURE: Is this actually guaranteed to always be 3 RATs, what if automatic is used or GSM and NB-IoT are non-existent?
+        //         Change this to support up to 3 RATs and set all unused entries to invalid and support default of 00 [Automatic (eMTC → NB-IoT)]
 
         if( atCoreStatus == CELLULAR_AT_SUCCESS )
         {
@@ -1959,7 +1959,7 @@ static CellularPktStatus_t _Cellular_RecvFuncGetPsmConfigSettings( CellularConte
 
             if( atCoreStatus == CELLULAR_AT_SUCCESS )
             {
-                pPsmConfigSettings->threshold = tempUValue;     // TODO (MV): Only value between 20 and UINT32_MAX
+                pPsmConfigSettings->threshold = tempUValue;     // FUTURE: Only value between 20 and UINT32_MAX is valid
             }
         }
 
@@ -1974,7 +1974,7 @@ static CellularPktStatus_t _Cellular_RecvFuncGetPsmConfigSettings( CellularConte
 
             if( atCoreStatus == CELLULAR_AT_SUCCESS )
             {
-                if( ( tempValue >= 0 ) && (tempValue <= ( int32_t ) UINT8_MAX ) )  // TODO (MV): Only 0 - 15 are valid
+                if( ( tempValue >= 0 ) && (tempValue <= ( int32_t ) UINT8_MAX ) )  // FUTURE: Only 0 - 15 are valid
                 {
                     pPsmConfigSettings->psmVersion = ( uint8_t ) tempValue;
                 }
@@ -2030,7 +2030,7 @@ static CellularPktStatus_t socketRecvDataPrefix( void * pCallbackContext,
             /* Add a '\0' char at the end of the line. */
             for( i = 0; i < localLineLength; i++ )
             {
-                if( ( pDataStart[ i ] == '\r' ) || ( pDataStart[ i ] == '\n' ) )    // TODO (MV): Strangeness here were line considered ended if only '\n' but later expect "\r\n"
+                if( ( pDataStart[ i ] == '\r' ) || ( pDataStart[ i ] == '\n' ) )
                 {
                     pDataStart[ i ] = '\0';
                     prefixLineLength = i;
@@ -2118,7 +2118,7 @@ static CellularPktStatus_t sslSocketRecvDataPrefix( void * pCallbackContext,
             /* Add a '\0' char at the end of the line. */
             for( i = 0; i < localLineLength; i++ )
             {
-                if( ( pDataStart[ i ] == '\r' ) || ( pDataStart[ i ] == '\n' ) )    // TODO (MV): Strangeness here were line considered ended if only '\n' but later expect "\r\n"
+                if( ( pDataStart[ i ] == '\r' ) || ( pDataStart[ i ] == '\n' ) )
                 {
                     pDataStart[ i ] = '\0';
                     prefixLineLength = i;
@@ -2728,15 +2728,15 @@ static CellularPktStatus_t socketSendDataPrefix( void * pCallbackContext,
         LogError( ( "socketSendDataPrefix: pCallbackContext is not NULL" ) );
         pktStatus = CELLULAR_PKT_STATUS_BAD_PARAM;
     }
-    else if( *pBytesRead != 2U )        // TODO (MV): Is this actually 2 characters, expecting just one '>'
+    else if( *pBytesRead != 2U )        // NOTE: expecting just one '>' character but in reality the result is "> ", thus pBytesRead equal to 2 is expected
     {
-        LogDebug( ( "socketSendDataPrefix: pBytesRead %u %s is not 1", *pBytesRead, pLine ) );
+        LogDebug( ( "socketSendDataPrefix: pBytesRead %u '%s' is not 1", *pBytesRead, pLine ) );
     }
     else
     {
         /* After the data prefix, there should not be any data in stream.
          * Cellular common processes AT command in lines. Add a '\0' after '>'. */
-        if( strcmp( pLine, "> " ) == 0 )        // TODO (MV): MAJOR, Is this actually 2 characters, expecting just one '>'
+        if( strcmp( pLine, "> " ) == 0 )
         {
             pLine[ 1 ] = '\n';
         }
@@ -2795,7 +2795,7 @@ CellularError_t Cellular_SetPsmSettings( CellularHandle_t cellularHandle,
         ( void ) snprintf( cmdBuf, CELLULAR_AT_CMD_MAX_SIZE, "AT+QPSMS=%d", pPsmSettings->mode );
         cmdBufLen = strlen( cmdBuf );
         if (pPsmSettings->periodicTauValue != 0 || pPsmSettings->activeTimeValue != 0) {
-            (void) strcat(cmdBuf, ",");     // TODO (MV): Improve robustness of this
+            (void) strcat(cmdBuf, ",");     // FUTURE: Improve robustness of this
             cmdBufLen++;
             cmdBufLen += appendBinaryPattern(&cmdBuf[cmdBufLen], (CELLULAR_AT_CMD_MAX_SIZE - cmdBufLen), 0, false);    // NOTE: BG770 doesn't support this parameter
             cmdBufLen += appendBinaryPattern(&cmdBuf[cmdBufLen], (CELLULAR_AT_CMD_MAX_SIZE - cmdBufLen), 0, false);    // NOTE: BG770 doesn't support this parameter
@@ -3434,7 +3434,7 @@ CellularError_t Cellular_GetSocketReceiveStats( CellularHandle_t cellularHandle,
                              "AT+QSSLRECV=" : "AT+QIRD=" ),
                            socketHandle->socketId);
         pktStatus = _Cellular_TimeoutAtcmdRequestWithCallback( pContext, atReqSocketRecvStats,
-                                                               SOCKET_DISCONNECT_PACKET_REQ_TIMEOUT_MS );  // TODO (MV): Real timeout?
+                                                               DATA_READ_TIMEOUT_MS );  // FUTURE: Can this be shortened since only querying status
 
         if( pktStatus != CELLULAR_PKT_STATUS_OK )
         {
@@ -4195,7 +4195,9 @@ static CellularPktStatus_t fileUploadDataPrefix( void * pCallbackContext,
                                                  char * pLine,
                                                  uint32_t * pBytesRead )
 {
+    static const char *const FILE_UPLOAD_DATA_PREFIX = "CONNECT\r\n";
     static const int FILE_UPLOAD_DATA_PREFIX_LENGTH = 9U;
+    static const int FILE_UPLOAD_DATA_PREFIX_WO_CRLF_LENGTH = FILE_UPLOAD_DATA_PREFIX_LENGTH - 2U;
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
 
     if( ( pLine == NULL ) || ( pBytesRead == NULL ) )
@@ -4208,17 +4210,17 @@ static CellularPktStatus_t fileUploadDataPrefix( void * pCallbackContext,
         LogError( ( "fileUploadDataPrefix: pCallbackContext is not NULL" ) );
         pktStatus = CELLULAR_PKT_STATUS_BAD_PARAM;
     }
-    else if( *pBytesRead != FILE_UPLOAD_DATA_PREFIX_LENGTH )    // TODO (MV): Should this be 8? ie. 7 + 1 like in socketSendDataPrefix?
+    else if( *pBytesRead != FILE_UPLOAD_DATA_PREFIX_LENGTH )
     {
-        LogDebug( ( "fileUploadDataPrefix: pBytesRead %u %s is not %d", *pBytesRead, pLine, FILE_UPLOAD_DATA_PREFIX_LENGTH ) );
+        LogDebug( ( "fileUploadDataPrefix: pBytesRead %u '%s' is not %d", *pBytesRead, pLine, FILE_UPLOAD_DATA_PREFIX_LENGTH ) );
     }
     else
     {
         /* After the data prefix, there should not be any data in stream.
          * Cellular common processes AT command in lines. Add a '\0' after 'CONNECT'. */
-        if( strcmp( pLine, "CONNECT\r\n" ) == 0 )
+        if( strcmp( pLine, FILE_UPLOAD_DATA_PREFIX ) == 0 )
         {
-            pLine[ FILE_UPLOAD_DATA_PREFIX_LENGTH ] = '\n';
+            pLine[ FILE_UPLOAD_DATA_PREFIX_WO_CRLF_LENGTH ] = '\n';
         }
     }
 
