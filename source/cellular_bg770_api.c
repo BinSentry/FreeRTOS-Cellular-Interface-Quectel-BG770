@@ -4015,7 +4015,7 @@ CellularError_t Cellular_GetHostByName( CellularHandle_t cellularHandle,
         /* coverity[misra_c_2012_rule_21_6_violation]. */
         ( void ) snprintf( cmdBuf, CELLULAR_AT_CMD_QUERY_DNS_MAX_SIZE,
                            "AT+QIDNSGIP=%u,\"%s\"", contextId, pcHostName );
-        pktStatus = _Cellular_AtcmdRequestWithCallback( pContext, atReqQueryDns );  // TODO (MV): Is the default 5s timeout valid here, datasheet doesn't specify time to get OK, probably OK, ask Quectel?
+        pktStatus = _Cellular_AtcmdRequestWithCallback( pContext, atReqQueryDns );  // NOTE: documentation says 60 s for max response time but that is for the URC, "OK"/"ERROR" response should be fast
 
         if( pktStatus != CELLULAR_PKT_STATUS_OK )
         {
