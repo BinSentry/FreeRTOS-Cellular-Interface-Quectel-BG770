@@ -42,8 +42,6 @@
 
 static void _Cellular_ProcessPowerDown( CellularContext_t * pContext,
                                         char * pInputLine );
-static void _Cellular_ProcessPsmPowerDown( CellularContext_t * pContext,
-                                           char * pInputLine );
 static void _Cellular_ProcessModemRdy( CellularContext_t * pContext,
                                        char * pInputLine );
 static void _Cellular_ProcessModemAppRdy( CellularContext_t * pContext,
@@ -730,7 +728,7 @@ static void _Cellular_ProcessSocketurc( CellularContext_t * pContext,
             /* this whole if as a function and return pktstatus
              * take iotat_getnexttok inside
              * convert atcore status to pktstatus. */
-            if( strstr( pToken, "recv" ) != NULL )  // TODO (MV): Why is this comparison different?
+            if( strstr( pToken, "recv" ) != NULL )  // FUTURE: Why is this comparison different?
             {
                 pktStatus = _parseSocketUrcRecv( pContext, pUrcStr );
             }
@@ -803,7 +801,7 @@ static void _Cellular_ProcessSSLSocketurc( CellularContext_t * pContext,
             /* this whole if as a function and return pktstatus
              * take iotat_getnexttok inside
              * convert atcore status to pktstatus. */
-            if( strstr( pToken, "recv" ) != NULL )  // TODO (MV): Why is this comparison different?
+            if( strstr( pToken, "recv" ) != NULL )  // FUTURE: Why is this comparison different?
             {
                 pktStatus = _parseSocketUrcRecv( pContext, pUrcStr );
             }
@@ -843,7 +841,7 @@ static void _Cellular_ProcessSimstat( CellularContext_t * pContext,
         ( void ) _Cellular_ParseSimstat( pInputLine, &simCardState );
     }
 
-    // TODO (MV): This goes nowhere? What's the point?
+    // FUTURE: This goes nowhere? What's the point?
 }
 
 /*-----------------------------------------------------------*/
@@ -864,28 +862,6 @@ static void _Cellular_ProcessPowerDown( CellularContext_t * pContext,
     {
         LogDebug( ( "_Cellular_ProcessPowerDown: Modem Power down event received" ) );
         _Cellular_ModemEventCallback( pContext, CELLULAR_MODEM_EVENT_POWERED_DOWN );
-    }
-}
-
-/*-----------------------------------------------------------*/
-
-// TODO (MV): Is this still needed?
-/* Cellular common prototype. */
-/* coverity[misra_c_2012_rule_8_13_violation] */
-static void _Cellular_ProcessPsmPowerDown( CellularContext_t * pContext,
-                                           char * pInputLine )
-{
-    /* The token is the pInputLine. No need to process the pInputLine. */
-    ( void ) pInputLine;
-
-    if( pContext == NULL )
-    {
-        LogError( ( "_Cellular_ProcessPowerDown: Context not set" ) );
-    }
-    else
-    {
-        LogDebug( ( "_Cellular_ProcessPsmPowerDown: Modem PSM power down event received" ) );
-        _Cellular_ModemEventCallback( pContext, CELLULAR_MODEM_EVENT_PSM_ENTER );
     }
 }
 
