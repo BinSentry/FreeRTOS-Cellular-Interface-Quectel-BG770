@@ -58,6 +58,10 @@ static void _Cellular_ProcessSimstat( CellularContext_t * pContext,
                                       char * pInputLine );
 static void _Cellular_ProcessIndication( CellularContext_t * pContext,
                                          char * pInputLine );
+static void _Cellular_ProcessPSMTimerurc(CellularContext_t * pContext,
+                                         char * pInputLine );
+static void _Cellular_ProcessPsmPowerDown( CellularContext_t * pContext,
+                                           char * pInputLine );
 
 /*-----------------------------------------------------------*/
 
@@ -66,17 +70,19 @@ static void _Cellular_ProcessIndication( CellularContext_t * pContext,
 /* coverity[misra_c_2012_rule_8_7_violation] */
 CellularAtParseTokenMap_t CellularUrcHandlerTable[] =
 {
-    { "APP RDY",           _Cellular_ProcessModemAppRdy },
-    { "CEREG",             Cellular_CommonUrcProcessCereg },
-    { "CREG",              Cellular_CommonUrcProcessCreg  },
-    { "POWERED DOWN",      _Cellular_ProcessPowerDown     },
-    { "QIND",              _Cellular_ProcessIndication    },
-    { "QIOPEN",            _Cellular_ProcessSocketOpen    },
-    { "QIURC",             _Cellular_ProcessSocketurc     },
-    { "QSIMSTAT",          _Cellular_ProcessSimstat       },
-    { "QSSLOPEN",          _Cellular_ProcessSSLSocketOpen },
-    { "QSSLURC",           _Cellular_ProcessSSLSocketurc  },
-    { "RDY",               _Cellular_ProcessModemRdy      }
+    { "APP RDY",      _Cellular_ProcessModemAppRdy    },
+    { "CEREG",        Cellular_CommonUrcProcessCereg  },
+    { "CREG",         Cellular_CommonUrcProcessCreg   },
+    { "POWERED DOWN", _Cellular_ProcessPowerDown      },
+    { "PSM POWER DOWN", _Cellular_ProcessPsmPowerDown },
+    { "QIND",         _Cellular_ProcessIndication     },
+    { "QIOPEN",       _Cellular_ProcessSocketOpen     },
+    { "QIURC",        _Cellular_ProcessSocketurc      },
+    { "QPSMTIMER",    _Cellular_ProcessPSMTimerurc    },
+    { "QSIMSTAT",     _Cellular_ProcessSimstat        },
+    { "QSSLOPEN",     _Cellular_ProcessSSLSocketOpen  },
+    { "QSSLURC",      _Cellular_ProcessSSLSocketurc   },
+    { "RDY",          _Cellular_ProcessModemRdy       }
 };
 
 /* FreeRTOS Cellular Common Library porting interface. */
@@ -862,6 +868,49 @@ static void _Cellular_ProcessPowerDown( CellularContext_t * pContext,
     {
         LogDebug( ( "_Cellular_ProcessPowerDown: Modem Power down event received" ) );
         _Cellular_ModemEventCallback( pContext, CELLULAR_MODEM_EVENT_POWERED_DOWN );
+    }
+}
+
+/*-----------------------------------------------------------*/
+
+/* Cellular common prototype. */
+/* coverity[misra_c_2012_rule_8_13_violation] */
+static void _Cellular_ProcessPsmPowerDown( CellularContext_t * pContext,
+                                           char * pInputLine )
+{
+    /* The token is the pInputLine. No need to process the pInputLine. */
+    ( void ) pInputLine;
+
+    if( pContext == NULL )
+    {
+        LogError( ( "_Cellular_ProcessPsmPowerDown: Context not set" ) );
+    }
+    else
+    {
+        LogDebug( ( "_Cellular_ProcessPsmPowerDown: Modem PSM power down event received" ) );
+        _Cellular_ModemEventCallback( pContext, CELLULAR_MODEM_EVENT_PSM_ENTER );
+    }
+}
+
+/*-----------------------------------------------------------*/
+
+/* Cellular common prototype. */
+/* coverity[misra_c_2012_rule_8_13_violation] */
+static void _Cellular_ProcessPSMTimerurc(CellularContext_t * pContext,
+                                         char * pInputLine )
+{
+    /* No need to process the pInputLine, no interface to get timer info at this point. */
+    ( void ) pInputLine;
+
+    if( pContext == NULL )
+    {
+        LogError( ( "_Cellular_ProcessPSMTimerurc: Context not set" ) );
+    }
+    else
+    {
+        // FUTURE: Pass timer info through modem event callback
+        LogDebug( ( "_Cellular_ProcessPSMTimerurc: Modem PSM timer start event received" ) );
+        _Cellular_ModemEventCallback( pContext, CELLULAR_MODEM_EVENT_PSM_TIMER );
     }
 }
 

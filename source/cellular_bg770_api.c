@@ -1593,7 +1593,7 @@ static CellularATError_t parseQpsmsRau( char * pToken,
                                         CellularPsmSettings_t * pPsmSettings )
 {
     int32_t tempValue = 0;
-    CellularATError_t atCoreStatus = Cellular_ATStrtoi( pToken, 2, &tempValue );
+    CellularATError_t atCoreStatus = Cellular_ATStrtoi( pToken, 10, &tempValue );
 
     if( atCoreStatus == CELLULAR_AT_SUCCESS )
     {
@@ -1617,7 +1617,7 @@ static CellularATError_t parseQpsmsRdyTimer( char * pToken,
                                              CellularPsmSettings_t * pPsmSettings )
 {
     int32_t tempValue = 0;
-    CellularATError_t atCoreStatus = Cellular_ATStrtoi( pToken, 2, &tempValue );
+    CellularATError_t atCoreStatus = Cellular_ATStrtoi( pToken, 10, &tempValue );
 
     if( atCoreStatus == CELLULAR_AT_SUCCESS )
     {
@@ -1641,7 +1641,7 @@ static CellularATError_t parseQpsmsTau( char * pToken,
                                         CellularPsmSettings_t * pPsmSettings )
 {
     int32_t tempValue = 0;
-    CellularATError_t atCoreStatus = Cellular_ATStrtoi( pToken, 2, &tempValue );
+    CellularATError_t atCoreStatus = Cellular_ATStrtoi( pToken, 10, &tempValue );
 
     if( atCoreStatus == CELLULAR_AT_SUCCESS )
     {
@@ -1665,7 +1665,7 @@ static CellularATError_t parseQpsmsActiveTime( char * pToken,
                                                CellularPsmSettings_t * pPsmSettings )
 {
     int32_t tempValue = 0;
-    CellularATError_t atCoreStatus = Cellular_ATStrtoi( pToken, 2, &tempValue );
+    CellularATError_t atCoreStatus = Cellular_ATStrtoi( pToken, 10, &tempValue );
 
     if( atCoreStatus == CELLULAR_AT_SUCCESS )
     {

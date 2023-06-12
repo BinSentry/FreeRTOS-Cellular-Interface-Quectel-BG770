@@ -76,7 +76,7 @@ uint32_t CellularSrcTokenSuccessTableSize = sizeof( CellularSrcTokenSuccessTable
 /* FreeRTOS Cellular Common Library porting interface. */
 /* coverity[misra_c_2012_rule_8_7_violation] */
 const char * CellularUrcTokenWoPrefixTable[] =
-{ "APP RDY", "POWERED DOWN", "RDY" };
+{ "APP RDY", "POWERED DOWN", "PSM POWER DOWN",  "RDY" };
 /* FreeRTOS Cellular Common Library porting interface. */
 /* coverity[misra_c_2012_rule_8_7_violation] */
 uint32_t CellularUrcTokenWoPrefixTableSize = sizeof( CellularUrcTokenWoPrefixTable ) / sizeof( char * );
@@ -86,8 +86,7 @@ uint32_t CellularUrcTokenWoPrefixTableSize = sizeof( CellularUrcTokenWoPrefixTab
 static CellularError_t sendAtCommandWithRetryTimeoutParams( CellularContext_t * pContext,
                                                             const CellularAtReq_t * pAtReq,
                                                             uint32_t commandTimeoutMS,
-                                                            uint32_t exponentialBackoffInterCommandBaseMS
-                                                            )
+                                                            uint32_t exponentialBackoffInterCommandBaseMS )
 {
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
@@ -554,6 +553,10 @@ CellularError_t Cellular_ModuleEnableUrc( CellularContext_t * pContext )
 
     /* Enable time zone change event reporting by unsolicited result code +CTZV: <tz> */
     atReqGetNoResult.pAtCmd = "AT+CTZR=1";
+    ( void ) _Cellular_AtcmdRequestWithCallback( pContext, atReqGetNoResult );
+
+    /* Enable PSM URC reporting by unsolicited result code +QPSMTIMER: <TAU_timer>,<T3324_timer> */
+    atReqGetNoResult.pAtCmd = "AT+QCFG=\"psm/urc\",1";
     ( void ) _Cellular_AtcmdRequestWithCallback( pContext, atReqGetNoResult );
 
     return cellularStatus;
