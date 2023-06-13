@@ -6184,7 +6184,7 @@ CellularError_t Cellular_SetServiceSelection( CellularHandle_t cellularHandle,
             ( void ) snprintf( cmdBuf, CELLULAR_AT_CMD_MAX_SIZE, "%s%d,%d,\"%s\"%s",
                                "AT+COPS=", mode, pServiceSelection->operatorNameFormat, operatorString, commaRATString );
             LogDebug( ( "Cellular_SetPSMEntry: PSM enter command: %s", cmdBuf ) );
-            pktStatus = _Cellular_AtcmdRequestWithCallback( pContext, atReqSetServiceSelection );
+            pktStatus = _Cellular_TimeoutAtcmdRequestWithCallback( pContext, atReqSetServiceSelection, OPERATOR_SELECTION_PACKET_REQ_TIMEOUT_MS );
 
             if( pktStatus != CELLULAR_PKT_STATUS_OK )
             {

@@ -32,6 +32,9 @@
 #endif
 /* *INDENT-ON* */
 
+/* AT Command timeout for operator selection (COPS AT command) */
+#define OPERATOR_SELECTION_PACKET_REQ_TIMEOUT_MS   ( 180000UL )
+
 /* AT Command timeout for PDN activation */
 #define PDN_ACTIVATION_PACKET_REQ_TIMEOUT_MS       ( 150000UL )
 
