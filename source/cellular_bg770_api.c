@@ -6049,3 +6049,150 @@ CellularError_t Cellular_SetPSMEntry( CellularHandle_t cellularHandle,
 
     return cellularStatus;
 }
+
+/*-----------------------------------------------------------*/
+
+CellularError_t Cellular_GetServiceSelection( CellularHandle_t cellularHandle,
+                                              CellularServiceSelection_t * pServiceSelection )
+{
+    // TODO (MV): Implement
+    return CELLULAR_SUCCESS;
+}
+
+/*-----------------------------------------------------------*/
+
+CellularError_t Cellular_SetServiceSelection( CellularHandle_t cellularHandle,
+                                              const CellularServiceSelection_t *const pServiceSelection )
+{
+    CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    char cmdBuf[ CELLULAR_AT_CMD_MAX_SIZE ] = { '\0' };
+    CellularAtReq_t atReqSetServiceSelection = { 0 };
+    uint8_t mode = 0;
+    char operatorString[ CELLULAR_NETWORK_NAME_MAX_SIZE + 1 ] = { '\0' };
+    static const int MAX_RAT_VALUE_STRING_LENGTH = ( CELLULAR_RAT_MAX / 10 ) + 1;
+    char commaRATString[ 1 + MAX_RAT_VALUE_STRING_LENGTH + 1 ];    // first +1 is for comma, second is for null terminator
+
+    atReqSetServiceSelection.pAtCmd = cmdBuf;
+    atReqSetServiceSelection.atCmdType = CELLULAR_AT_NO_RESULT;
+    atReqSetServiceSelection.pAtRspPrefix = NULL;
+    atReqSetServiceSelection.respCallback = NULL;
+    atReqSetServiceSelection.pData = NULL;
+    atReqSetServiceSelection.dataLen = 0;
+
+    cellularStatus = _Cellular_CheckLibraryStatus( pContext );
+
+    if( cellularStatus != CELLULAR_SUCCESS )
+    {
+        LogError( ( "_Cellular_CheckLibraryStatus failed" ) );
+    }
+    else if( ( pServiceSelection == NULL ) || ( pServiceSelection->networkRegistrationMode < 0 ) ||
+            ( pServiceSelection->networkRegistrationMode >= REGISTRATION_MODE_MAX ) ||
+            ( ( ( pServiceSelection->rat < 0 ) || ( pServiceSelection->rat >= CELLULAR_RAT_MAX ) ) &&
+                ( pServiceSelection->rat != CELLULAR_RAT_INVALID ) ) ||
+            ( ( pServiceSelection->operatorNameFormat != OPERATOR_NAME_FORMAT_LONG ) &&
+                ( pServiceSelection->operatorNameFormat != OPERATOR_NAME_FORMAT_SHORT ) &&
+                ( pServiceSelection->operatorNameFormat != OPERATOR_NAME_FORMAT_NUMERIC ) ) )
+    {
+        LogError( ( "Cellular_SetServiceSelection : Bad parameter" ) );
+        cellularStatus = CELLULAR_BAD_PARAMETER;
+    }
+    else
+    {
+        /* Form the AT command. */
+
+        switch( pServiceSelection->networkRegistrationMode )
+        {
+            case REGISTRATION_MODE_AUTO:
+                mode = 0;
+                break;
+
+            case REGISTRATION_MODE_MANUAL:
+                mode = 1;
+                break;
+
+            case REGISTRATION_MODE_DEREGISTER:
+                mode = 2;
+                break;
+
+            case REGISTRATION_MODE_MANUAL_THEN_AUTO:
+                mode = 4;
+                break;
+
+            default:
+                LogError( ( "Cellular_SetServiceSelection: invalid network registration mode requested, mode: %d",
+                            pServiceSelection->networkRegistrationMode ) );
+                cellularStatus = CELLULAR_BAD_PARAMETER;
+                break;
+        }
+
+        if( cellularStatus == CELLULAR_SUCCESS )
+        {
+            if( ( mode == 0 ) || ( mode == 2) )
+            {
+                operatorString[ 0 ] = '\0';   // operator is irrelevant
+            }
+            else if( pServiceSelection->operatorNameFormat == OPERATOR_NAME_FORMAT_NUMERIC )
+            {
+                /* MISRA Ref 21.6.1 [Use of snprintf] */
+                /* More details at: https://github.com/FreeRTOS/FreeRTOS-Cellular-Interface/blob/main/MISRA.md#rule-216 */
+                /* coverity[misra_c_2012_rule_21_6_violation]. */
+                int numericOperatorLength = snprintf( operatorString, sizeof( operatorString ), "%s%s",
+                                                      pServiceSelection->operatorPlmn.mcc,
+                                                      pServiceSelection->operatorPlmn.mnc );
+                if( ( numericOperatorLength < 0 ) || ( (size_t)numericOperatorLength >= sizeof( operatorString ) ) )
+                {
+                    cellularStatus = CELLULAR_BAD_PARAMETER;
+                }
+            }
+            else
+            {
+                strncpy( operatorString, pServiceSelection->operatorName, sizeof( operatorString ) );
+                if( operatorString[ sizeof( operatorString ) - 1 ] != '\0' )
+                {
+                    cellularStatus = CELLULAR_BAD_PARAMETER;
+                }
+            }
+        }
+
+        if( cellularStatus == CELLULAR_SUCCESS )
+        {
+            if( pServiceSelection->rat == CELLULAR_RAT_INVALID )
+            {
+                commaRATString[ 0 ] = '\0';
+            }
+            else
+            {
+                /* MISRA Ref 21.6.1 [Use of snprintf] */
+                /* More details at: https://github.com/FreeRTOS/FreeRTOS-Cellular-Interface/blob/main/MISRA.md#rule-216 */
+                /* coverity[misra_c_2012_rule_21_6_violation]. */
+                int ratStringLength = snprintf( commaRATString, sizeof( commaRATString ), ",%d",
+                                                pServiceSelection->rat );
+                if( ( ratStringLength < 0 ) || ( (size_t)ratStringLength >= sizeof( commaRATString ) ) )
+                {
+                    cellularStatus = CELLULAR_BAD_PARAMETER;
+                }
+            }
+        }
+
+        if( cellularStatus == CELLULAR_SUCCESS )
+        {
+            /* MISRA Ref 21.6.1 [Use of snprintf] */
+            /* More details at: https://github.com/FreeRTOS/FreeRTOS-Cellular-Interface/blob/main/MISRA.md#rule-216 */
+            /* coverity[misra_c_2012_rule_21_6_violation]. */
+            ( void ) snprintf( cmdBuf, CELLULAR_AT_CMD_MAX_SIZE, "%s%d,%d,\"%s\"%s",
+                               "AT+COPS=", mode, pServiceSelection->operatorNameFormat, operatorString, commaRATString );
+            LogDebug( ( "Cellular_SetPSMEntry: PSM enter command: %s", cmdBuf ) );
+            pktStatus = _Cellular_AtcmdRequestWithCallback( pContext, atReqSetServiceSelection );
+
+            if( pktStatus != CELLULAR_PKT_STATUS_OK )
+            {
+                LogError( ( "Cellular_SetServiceSelection: couldn't send service selection" ) );
+                cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
+            }
+        }
+    }
+
+    return cellularStatus;
+}
