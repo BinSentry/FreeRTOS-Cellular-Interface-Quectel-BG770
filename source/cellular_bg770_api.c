@@ -6052,11 +6052,298 @@ CellularError_t Cellular_SetPSMEntry( CellularHandle_t cellularHandle,
 
 /*-----------------------------------------------------------*/
 
+static bool _parseServiceSelection( char * pCopsPayload,
+                                    CellularServiceSelection_t * pServiceSelection )
+{
+    static const size_t PLMN_MAX_LENGTH = CELLULAR_MCC_MAX_SIZE + CELLULAR_MNC_MAX_SIZE;
+    char * pToken = NULL, * pTmpCopsPayload = pCopsPayload;
+    int32_t tempValue = 0;
+    bool parseStatus = true;
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+    CellularATError_t atCoreStatus = CELLULAR_AT_SUCCESS;
+    size_t operatorLength = 0;
+
+
+    if( (pServiceSelection == NULL ) || (pCopsPayload == NULL ) )
+    {
+        LogError( ( "_parseServiceSelection: Invalid Input Parameters" ) );
+        parseStatus = false;
+    }
+
+//
+//    ;
+//    pServiceSelection->operatorName[0] = '\0';
+//    pServiceSelection->operatorPlmn.mcc[0] = '\0';
+//    pServiceSelection->operatorPlmn.mnc[0] = '\0';
+//    pServiceSelection->rat = CELLULAR_RAT_INVALID;
+
+    if( parseStatus == true )
+    {
+        if( Cellular_ATGetNextTok( &pTmpCopsPayload, &pToken ) == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATStrtoi( pToken, 10, &tempValue );
+
+            if( atCoreStatus == CELLULAR_AT_SUCCESS )
+            {
+                if( ( ( tempValue >= 0 ) && ( tempValue < ( int32_t ) REGISTRATION_MODE_MAX ) ) &&
+                    ( tempValue != 3 /* this value is not applicable in Read Command response */ ) )
+                {
+                    pServiceSelection->networkRegistrationMode = ( CellularNetworkRegistrationMode_t ) tempValue;
+                }
+                else
+                {
+                    atCoreStatus = CELLULAR_AT_ERROR;
+                }
+            }
+
+            if( atCoreStatus != CELLULAR_AT_SUCCESS )
+            {
+                LogError( ( "_parseServiceSelection: Error in processing mode. Token %s", pToken ) );
+                parseStatus = false;
+                pServiceSelection->networkRegistrationMode = REGISTRATION_MODE_UNKNOWN;
+            }
+        }
+        else
+        {
+            LogError( ( "_parseServiceSelection: Error, missing mode" ) );
+            parseStatus = false;
+            pServiceSelection->networkRegistrationMode = REGISTRATION_MODE_UNKNOWN;
+        }
+    }
+
+    if( parseStatus == true )
+    {
+        if( Cellular_ATGetNextTok( &pTmpCopsPayload, &pToken ) == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATStrtoi( pToken, 10, &tempValue );
+
+            if( atCoreStatus == CELLULAR_AT_SUCCESS )
+            {
+                if( ( ( tempValue >= 0 ) && ( tempValue < ( int32_t ) OPERATOR_NAME_FORMAT_MAX ) ) &&
+                    ( tempValue != OPERATOR_NAME_FORMAT_NOT_PRESENT ) )
+                {
+                    pServiceSelection->operatorNameFormat = ( CellularOperatorNameFormat_t ) tempValue;
+                }
+                else
+                {
+                    atCoreStatus = CELLULAR_AT_ERROR;
+                }
+            }
+
+            if( atCoreStatus != CELLULAR_AT_SUCCESS )
+            {
+                LogError( ( "_parseServiceSelection: Error in processing format. Token %s", pToken ) );
+                parseStatus = false;
+                pServiceSelection->operatorNameFormat = OPERATOR_NAME_FORMAT_NOT_PRESENT;
+            }
+        }
+        else
+        {
+            LogInfo( ( "_parseServiceSelection: Format not present" ) );
+            pServiceSelection->operatorNameFormat = OPERATOR_NAME_FORMAT_NOT_PRESENT;
+        }
+    }
+
+    if( parseStatus == true )
+    {
+        if( Cellular_ATGetNextTok( &pTmpCopsPayload, &pToken ) == CELLULAR_AT_SUCCESS )
+        {
+            (void) strncpy( pServiceSelection->operatorName, pToken, sizeof ( pServiceSelection->operatorName ) );
+            if( pServiceSelection->operatorName[ sizeof ( pServiceSelection->operatorName ) - 1 ] != '\0' )
+            {
+                pServiceSelection->operatorName[ sizeof ( pServiceSelection->operatorName ) - 1 ] = '\0';
+                LogWarn( ( "_parseServiceSelection: operator string truncation. Token '%s' OperatorName '%s'",
+                           pToken, pServiceSelection->operatorName ) );
+            }
+
+            if( pServiceSelection->networkRegistrationMode == OPERATOR_NAME_FORMAT_NUMERIC )
+            {
+                operatorLength = strnlen( pToken, PLMN_MAX_LENGTH + 1 );
+                if( ( operatorLength == PLMN_MAX_LENGTH - 1 ) || ( operatorLength == PLMN_MAX_LENGTH ) )
+                {
+                    memcpy( pServiceSelection->operatorPlmn.mcc, pToken, CELLULAR_MCC_MAX_SIZE );
+                    pServiceSelection->operatorPlmn.mcc[ CELLULAR_MCC_MAX_SIZE ] = '\0';
+
+                    const size_t mncSize = operatorLength - CELLULAR_MCC_MAX_SIZE;
+                    memcpy( pServiceSelection->operatorPlmn.mnc, &pToken[ CELLULAR_MCC_MAX_SIZE ], mncSize );
+                    pServiceSelection->operatorPlmn.mcc[ mncSize ] = '\0';
+                }
+                else
+                {
+                    atCoreStatus = CELLULAR_AT_ERROR;
+                }
+            }
+
+            if( atCoreStatus != CELLULAR_AT_SUCCESS )
+            {
+                if( pServiceSelection->networkRegistrationMode == OPERATOR_NAME_FORMAT_NUMERIC )
+                {
+                    LogError( ( "_parseServiceSelection: Error in processing numeric operator string. Token %s", pToken ) );
+                }
+                else
+                {
+                    LogError( ( "_parseServiceSelection: Error in processing operator string. Token %s", pToken ) );
+                }
+
+                parseStatus = false;
+                pServiceSelection->operatorName[0] = '\0';
+                pServiceSelection->operatorPlmn.mcc[0] = '\0';
+                pServiceSelection->operatorPlmn.mnc[0] = '\0';
+            }
+        }
+        else
+        {
+            LogInfo( ( "_parseServiceSelection: operator string not present" ) );
+            pServiceSelection->operatorName[0] = '\0';
+            pServiceSelection->operatorPlmn.mcc[0] = '\0';
+            pServiceSelection->operatorPlmn.mnc[0] = '\0';
+        }
+    }
+
+    if( parseStatus == true )
+    {
+        if( Cellular_ATGetNextTok( &pTmpCopsPayload, &pToken ) == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATStrtoi( pToken, 10, &tempValue );
+
+            if( atCoreStatus == CELLULAR_AT_SUCCESS )
+            {
+                if( ( tempValue >= 0 ) && ( tempValue < ( int32_t ) CELLULAR_RAT_MAX ) )
+                {
+                    pServiceSelection->rat = ( CellularRat_t ) tempValue;
+                }
+                else
+                {
+                    atCoreStatus = CELLULAR_AT_ERROR;
+                }
+            }
+
+            if( atCoreStatus != CELLULAR_AT_SUCCESS )
+            {
+                LogError( ( "_parseServiceSelection: Error in processing RAT. Token %s", pToken ) );
+                parseStatus = false;
+                pServiceSelection->rat = CELLULAR_RAT_INVALID;
+            }
+        }
+        else
+        {
+            LogInfo( ( "_parseServiceSelection: RAT not present" ) );
+            pServiceSelection->rat = CELLULAR_RAT_INVALID;
+        }
+    }
+
+    return parseStatus;
+}
+
+/* FreeRTOS Cellular Library types. */
+/* coverity[misra_c_2012_rule_8_13_violation] */
+static CellularPktStatus_t _Cellular_RecvFuncGetServiceSelection( CellularContext_t * pContext,
+                                                                  const CellularATCommandResponse_t * pAtResp,
+                                                                  void * pData,
+                                                                  uint16_t dataLen )
+{
+    char * pInputLine = NULL;
+    CellularServiceSelection_t * pServiceSelection = ( CellularServiceSelection_t * ) pData;
+    bool parseStatus = true;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    CellularATError_t atCoreStatus = CELLULAR_AT_SUCCESS;
+
+    if( pContext == NULL )
+    {
+        pktStatus = CELLULAR_PKT_STATUS_INVALID_HANDLE;
+    }
+    else if( (pServiceSelection == NULL ) || (dataLen != sizeof( CellularServiceSelection_t ) ) )
+    {
+        pktStatus = CELLULAR_PKT_STATUS_BAD_PARAM;
+    }
+    else if( ( pAtResp == NULL ) || ( pAtResp->pItm == NULL ) || ( pAtResp->pItm->pLine == NULL ) )
+    {
+        LogError( ( "GetServiceSelection: Input Line passed is NULL" ) );
+        pktStatus = CELLULAR_PKT_STATUS_FAILURE;
+    }
+    else
+    {
+        pInputLine = pAtResp->pItm->pLine;
+        atCoreStatus = Cellular_ATRemovePrefix( &pInputLine );
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATRemoveAllDoubleQuote( pInputLine );
+        }
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATRemoveLeadingWhiteSpaces( &pInputLine );
+        }
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATRemoveTrailingWhiteSpaces( pInputLine );
+        }
+
+        if( atCoreStatus != CELLULAR_AT_SUCCESS )
+        {
+            pktStatus = _Cellular_TranslateAtCoreStatus( atCoreStatus );
+        }
+    }
+
+    if( pktStatus == CELLULAR_PKT_STATUS_OK )
+    {
+        parseStatus = _parseServiceSelection( pInputLine, pServiceSelection );
+
+        if( parseStatus != true )
+        {
+            pServiceSelection->networkRegistrationMode = REGISTRATION_MODE_UNKNOWN;
+            pServiceSelection->operatorNameFormat = OPERATOR_NAME_FORMAT_NOT_PRESENT;
+            pServiceSelection->operatorName[0] = '\0';
+            pServiceSelection->operatorPlmn.mcc[0] = '\0';
+            pServiceSelection->operatorPlmn.mnc[0] = '\0';
+            pServiceSelection->rat = CELLULAR_RAT_INVALID;
+            pktStatus = CELLULAR_PKT_STATUS_FAILURE;
+        }
+    }
+
+    return pktStatus;
+}
+
 CellularError_t Cellular_GetServiceSelection( CellularHandle_t cellularHandle,
                                               CellularServiceSelection_t * pServiceSelection )
 {
-    // TODO (MV): Implement
-    return CELLULAR_SUCCESS;
+    CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    CellularAtReq_t atReqGetServiceSelection =
+    {
+        "AT+COPS?",
+        CELLULAR_AT_WITH_PREFIX,
+        "+COPS",
+        _Cellular_RecvFuncGetServiceSelection,
+        pServiceSelection,
+        sizeof( CellularServiceSelection_t ),
+    };
+
+    cellularStatus = _Cellular_CheckLibraryStatus( pContext );
+
+    if( cellularStatus != CELLULAR_SUCCESS )
+    {
+        LogDebug( ( "_Cellular_CheckLibraryStatus failed" ) );
+    }
+    else if( pServiceSelection == NULL )
+    {
+        cellularStatus = CELLULAR_BAD_PARAMETER;
+    }
+    else
+    {
+        pktStatus = _Cellular_TimeoutAtcmdRequestWithCallback(pContext, atReqGetServiceSelection, OPERATOR_SELECTION_PACKET_REQ_TIMEOUT_MS );
+
+        if( pktStatus != CELLULAR_PKT_STATUS_OK )
+        {
+            LogError( ( "Cellular_GetServiceSelection: couldn't retrieve service selection" ) );
+            cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
+        }
+    }
+
+    return cellularStatus;
 }
 
 /*-----------------------------------------------------------*/
