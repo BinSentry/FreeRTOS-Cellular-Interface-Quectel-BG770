@@ -76,7 +76,7 @@ uint32_t CellularSrcTokenSuccessTableSize = sizeof( CellularSrcTokenSuccessTable
 /* FreeRTOS Cellular Common Library porting interface. */
 /* coverity[misra_c_2012_rule_8_7_violation] */
 const char * CellularUrcTokenWoPrefixTable[] =
-{ "APP RDY", "POWERED DOWN", "PSM POWER DOWN",  "RDY" };
+{ "APP RDY", "NORMAL POWER DOWN", "POWERED DOWN", "PSM POWER DOWN",  "RDY" };
 /* FreeRTOS Cellular Common Library porting interface. */
 /* coverity[misra_c_2012_rule_8_7_violation] */
 uint32_t CellularUrcTokenWoPrefixTableSize = sizeof( CellularUrcTokenWoPrefixTable ) / sizeof( char * );

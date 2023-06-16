@@ -73,6 +73,7 @@ CellularAtParseTokenMap_t CellularUrcHandlerTable[] =
     { "APP RDY",      _Cellular_ProcessModemAppRdy    },
     { "CEREG",        Cellular_CommonUrcProcessCereg  },
     { "CREG",         Cellular_CommonUrcProcessCreg   },
+    { "NORMAL POWER DOWN", _Cellular_ProcessPowerDown },
     { "POWERED DOWN", _Cellular_ProcessPowerDown      },
     { "PSM POWER DOWN", _Cellular_ProcessPsmPowerDown },
     { "QIND",         _Cellular_ProcessIndication     },
