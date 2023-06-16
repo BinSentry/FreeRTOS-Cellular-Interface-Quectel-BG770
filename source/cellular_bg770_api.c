@@ -6070,13 +6070,6 @@ static bool _parseServiceSelection( char * pCopsPayload,
         parseStatus = false;
     }
 
-//
-//    ;
-//    pServiceSelection->operatorName[0] = '\0';
-//    pServiceSelection->operatorPlmn.mcc[0] = '\0';
-//    pServiceSelection->operatorPlmn.mnc[0] = '\0';
-//    pServiceSelection->rat = CELLULAR_RAT_INVALID;
-
     if( parseStatus == true )
     {
         if( Cellular_ATGetNextTok( &pTmpCopsPayload, &pToken ) == CELLULAR_AT_SUCCESS )
@@ -6156,7 +6149,7 @@ static bool _parseServiceSelection( char * pCopsPayload,
                            pToken, pServiceSelection->operatorName ) );
             }
 
-            if( pServiceSelection->networkRegistrationMode == OPERATOR_NAME_FORMAT_NUMERIC )
+            if( pServiceSelection->operatorNameFormat == OPERATOR_NAME_FORMAT_NUMERIC )
             {
                 operatorLength = strnlen( pToken, PLMN_MAX_LENGTH + 1 );
                 if( ( operatorLength == PLMN_MAX_LENGTH - 1 ) || ( operatorLength == PLMN_MAX_LENGTH ) )
