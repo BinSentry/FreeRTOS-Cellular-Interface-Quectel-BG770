@@ -6059,10 +6059,8 @@ static bool _parseServiceSelection( char * pCopsPayload,
     char * pToken = NULL, * pTmpCopsPayload = pCopsPayload;
     int32_t tempValue = 0;
     bool parseStatus = true;
-    CellularError_t cellularStatus = CELLULAR_SUCCESS;
     CellularATError_t atCoreStatus = CELLULAR_AT_SUCCESS;
     size_t operatorLength = 0;
-
 
     if( (pServiceSelection == NULL ) || (pCopsPayload == NULL ) )
     {
@@ -6169,7 +6167,7 @@ static bool _parseServiceSelection( char * pCopsPayload,
 
             if( atCoreStatus != CELLULAR_AT_SUCCESS )
             {
-                if( pServiceSelection->networkRegistrationMode == OPERATOR_NAME_FORMAT_NUMERIC )
+                if( pServiceSelection->operatorNameFormat == OPERATOR_NAME_FORMAT_NUMERIC )
                 {
                     LogError( ( "_parseServiceSelection: Error in processing numeric operator string. Token %s", pToken ) );
                 }
