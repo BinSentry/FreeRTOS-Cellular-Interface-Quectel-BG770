@@ -546,7 +546,7 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
             /* More details at: https://github.com/FreeRTOS/FreeRTOS-Cellular-Interface/blob/main/MISRA.md#rule-216 */
             /* coverity[misra_c_2012_rule_21_6_violation]. */
             ( void ) snprintf( cmdBuf, sizeof ( cmdBuf ), "AT+QCFG=\"band\",0,%s,0", LTE_BANDMASK_HEX_STRING );
-            
+
             atReqGetNoResult.pAtCmd = cmdBuf;
 
             BG770FrequencyBands_t frequencyBands = { 0 };
@@ -697,7 +697,8 @@ static bool _parseFrequencyBands( char * pQcfgBandsPayload,
 
     if( parseStatus == true )
     {
-        if( Cellular_ATGetNextTok( &pTmpQcfgBandsPayload, &pToken ) != CELLULAR_AT_SUCCESS )
+        if( Cellular_ATGetNextTok( &pTmpQcfgBandsPayload, &pToken ) != CELLULAR_AT_SUCCESS ||
+            strcmp( pToken, "\"band\"" ) != 0 )
         {
             LogError( ( "_parseFrequencyBands: Error, missing \"band\"" ) );
             parseStatus = false;
@@ -706,6 +707,7 @@ static bool _parseFrequencyBands( char * pQcfgBandsPayload,
 
     if( parseStatus == true )
     {
+        // NOTE: expectation that token is present but don't care about the value since GSM is not supported
         if( Cellular_ATGetNextTok( &pTmpQcfgBandsPayload, &pToken ) != CELLULAR_AT_SUCCESS )
         {
             LogError( ( "_parseFrequencyBands: Error, missing GSM frequency bands" ) );
@@ -794,11 +796,6 @@ static CellularPktStatus_t _RecvFuncGetFrequencyBands( CellularContext_t * pCont
     {
         pInputLine = pAtResp->pItm->pLine;
         atCoreStatus = Cellular_ATRemovePrefix( &pInputLine );
-
-        if( atCoreStatus == CELLULAR_AT_SUCCESS )
-        {
-            atCoreStatus = Cellular_ATRemoveAllDoubleQuote( pInputLine );
-        }
 
         if( atCoreStatus == CELLULAR_AT_SUCCESS )
         {
