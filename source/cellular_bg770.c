@@ -60,6 +60,18 @@ typedef struct BG770FrequencyBands
     char nbIotBands_hexString[BG770_NB_IOT_BAND_HEX_STRING_MAX_LENGTH + 1];
 } BG770FrequencyBands_t;
 
+typedef enum BG77URCIndicationOption
+{
+    BG770_URC_INDICATION_OPTION_MAIN = 0,  /**< URC output on main UART. */
+    BG770_URC_INDICATION_OPTION_AUX,       /**< URC output on aux UART. */
+    BG770_URC_INDICATION_OPTION_EMUX,      /**< URC output on emux UART. */
+    BG770_URC_INDICATION_OPTION_UNKNOWN    /**< Unknown URC output. */
+} BG770URCIndicationOptionType_t;
+
+static const char * URCCFG_URCPORT_MAIN = "\"main\"";
+static const char * URCCFG_URCPORT_AUX = "\"aux\"";
+static const char * URCCFG_URCPORT_EMUX = "\"emux\"";
+
 static const TickType_t APP_READY_MAX_WAIT_PERIOD_ticks = pdMS_TO_TICKS( 10000U );
 static const TickType_t POST_APP_READY_WAIT_PERIOD_ticks = pdMS_TO_TICKS( 5000U );
 
@@ -72,6 +84,12 @@ static CellularError_t sendAtCommandWithRetryTimeout( CellularContext_t * pConte
 
 static CellularError_t _GetFrequencyBands( CellularHandle_t cellularHandle,
                                            BG770FrequencyBands_t * pFrequencyBands );
+
+static CellularError_t _GetURCIndicationOption( CellularHandle_t cellularHandle,
+                                                BG770URCIndicationOptionType_t * pURCIndicationOptionType );
+
+static CellularError_t _SetURCIndicationOption( CellularHandle_t cellularHandle,
+                                                BG770URCIndicationOptionType_t urcIndicationOptionType );
 
 /*-----------------------------------------------------------*/
 
@@ -495,20 +513,32 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
         {
             vTaskDelay( SHORT_DELAY_ticks );
 
-            /* Setting URC output port. */
-            #if defined( CELLULAR_BG770_URC_PORT_EMUX ) || defined( BG770_URC_PORT_EMUX )
-                atReqGetNoResult.pAtCmd = "AT+QURCCFG=\"urcport\",\"emux\"";
-            #else
-                atReqGetNoResult.pAtCmd = "AT+QURCCFG=\"urcport\",\"main\"";
-            #endif
-            cellularStatus = sendAtCommandWithRetryTimeout( pContext, &atReqGetNoResult );
-            if( cellularStatus == CELLULAR_SUCCESS )
+#if defined( CELLULAR_BG770_URC_PORT_EMUX ) || defined( BG770_URC_PORT_EMUX )
+            static const BG770URCIndicationOptionType_t desiredURCIndicationOptionType = BG770_URC_INDICATION_OPTION_EMUX;
+#else
+            static const BG770URCIndicationOptionType_t desiredURCIndicationOptionType = BG770_URC_INDICATION_OPTION_MAIN;
+#endif
+
+            BG770URCIndicationOptionType_t urcIndicationOptionType = BG770_URC_INDICATION_OPTION_UNKNOWN;
+            CellularError_t getURCIndicationOptionStatus = _GetURCIndicationOption(pContext, &urcIndicationOptionType );
+            if( getURCIndicationOptionStatus != CELLULAR_SUCCESS ||
+                urcIndicationOptionType == BG770_URC_INDICATION_OPTION_UNKNOWN ||
+                urcIndicationOptionType != desiredURCIndicationOptionType )
             {
-                LogInfo( ( "Cellular_ModuleEnableUE: '%s' command success.", atReqGetNoResult.pAtCmd ) );
+                /* Setting URC output port. */
+                cellularStatus = _SetURCIndicationOption( pContext, desiredURCIndicationOptionType );
+                if( cellularStatus == CELLULAR_SUCCESS )
+                {
+                    LogInfo( ( "Cellular_ModuleEnableUE: '%s' command success.", atReqGetNoResult.pAtCmd ) );
+                }
+                else
+                {
+                    LogError( ( "Cellular_ModuleEnableUE: '%s' command failed.", atReqGetNoResult.pAtCmd ) );
+                }
             }
             else
             {
-                LogError( ( "Cellular_ModuleEnableUE: '%s' command failed.", atReqGetNoResult.pAtCmd ) );
+                LogInfo( ( "Cellular_ModuleEnableUE: 'AT+QURCCFG=\"urcport\"' command skipped, already set.", atReqGetNoResult.pAtCmd ) );
             }
         }
 
@@ -554,6 +584,8 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
             if( getFreqBandsStatus != CELLULAR_SUCCESS ||
                 !_areHexStringChannelMasksEquivalent( frequencyBands.lteBands_hexString, LTE_BANDMASK_HEX_STRING ) )
             {
+                vTaskDelay( SHORT_DELAY_ticks );
+
                 cellularStatus = sendAtCommandWithRetryTimeout( pContext, &atReqGetNoResult );
                 if( cellularStatus == CELLULAR_SUCCESS )
                 {
@@ -858,3 +890,224 @@ static CellularError_t _GetFrequencyBands( CellularHandle_t cellularHandle,
 }
 
 /*-----------------------------------------------------------*/
+
+static BG770URCIndicationOptionType_t _getURCIndictionOptionType( const char * pUrcIndicationOptionString )
+{
+    if( strcmp( pUrcIndicationOptionString, URCCFG_URCPORT_MAIN ) == 0 )
+    {
+        return BG770_URC_INDICATION_OPTION_MAIN;
+    }
+    else if ( strcmp( pUrcIndicationOptionString, URCCFG_URCPORT_AUX ) == 0 )
+    {
+        return BG770_URC_INDICATION_OPTION_AUX;
+    }
+    else if ( strcmp( pUrcIndicationOptionString, URCCFG_URCPORT_EMUX ) == 0 )
+    {
+        return BG770_URC_INDICATION_OPTION_EMUX;
+    }
+    else
+    {
+        return BG770_URC_INDICATION_OPTION_UNKNOWN;
+    }
+}
+
+static const char * _getURCIndictionOptionString( const BG770URCIndicationOptionType_t urcIndicationOptionType )
+{
+    switch( urcIndicationOptionType )
+    {
+        case BG770_URC_INDICATION_OPTION_MAIN:
+            return URCCFG_URCPORT_MAIN;
+
+        case BG770_URC_INDICATION_OPTION_AUX:
+            return URCCFG_URCPORT_AUX;
+
+        case BG770_URC_INDICATION_OPTION_EMUX:
+            return URCCFG_URCPORT_EMUX;
+
+        default:
+            return "unknown";
+    }
+}
+
+static bool _parseURCIndicationOption( char * pQurccfgUrcportPayload,
+                                       BG770URCIndicationOptionType_t * pURCIndicationOption )
+{
+    char * pToken = NULL, * pTmpQurccfgUrcportPayload = pQurccfgUrcportPayload;
+    bool parseStatus = true;
+
+    if( ( pURCIndicationOption == NULL ) || ( pQurccfgUrcportPayload == NULL ) )
+    {
+        LogError( ( "_parseURCIndicationOption: Invalid Input Parameters" ) );
+        parseStatus = false;
+    }
+
+    if( parseStatus == true )
+    {
+        if( Cellular_ATGetNextTok( &pTmpQurccfgUrcportPayload, &pToken ) != CELLULAR_AT_SUCCESS ||
+            strcmp( pToken, "\"urcport\"" ) != 0 )
+        {
+            LogError( ( "_parseURCIndicationOption: Error, missing \"urcport\"" ) );
+            parseStatus = false;
+        }
+    }
+
+    if( parseStatus == true )
+    {
+        if( Cellular_ATGetNextTok( &pTmpQurccfgUrcportPayload, &pToken ) == CELLULAR_AT_SUCCESS )
+        {
+            *pURCIndicationOption = _getURCIndictionOptionType( pToken );
+            if( *pURCIndicationOption == BG770_URC_INDICATION_OPTION_UNKNOWN ) {
+                LogError( ( "_parseURCIndicationOption: URC indication option string not valid" ) );
+                parseStatus = false;
+            }
+        }
+        else
+        {
+            LogError( ( "_parseURCIndicationOption: URC indication option string not present" ) );
+            *pURCIndicationOption = BG770_URC_INDICATION_OPTION_UNKNOWN;
+            parseStatus = false;
+        }
+    }
+    else
+    {
+        *pURCIndicationOption = BG770_URC_INDICATION_OPTION_UNKNOWN;
+    }
+
+    return parseStatus;
+}
+
+/* FreeRTOS Cellular Library types. */
+/* coverity[misra_c_2012_rule_8_13_violation] */
+static CellularPktStatus_t _RecvFuncGetURCIndicationOption( CellularContext_t * pContext,
+                                                            const CellularATCommandResponse_t * pAtResp,
+                                                            void * pData,
+                                                            uint16_t dataLen )
+{
+    char * pInputLine = NULL;
+    BG770URCIndicationOptionType_t * pURCIndicationOption = ( BG770URCIndicationOptionType_t * ) pData;
+    bool parseStatus = true;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    CellularATError_t atCoreStatus = CELLULAR_AT_SUCCESS;
+
+    if( pContext == NULL )
+    {
+        pktStatus = CELLULAR_PKT_STATUS_INVALID_HANDLE;
+    }
+    else if( ( pURCIndicationOption == NULL ) || ( dataLen != sizeof( BG770URCIndicationOptionType_t ) ) )
+    {
+        pktStatus = CELLULAR_PKT_STATUS_BAD_PARAM;
+    }
+    else if( ( pAtResp == NULL ) || ( pAtResp->pItm == NULL ) || ( pAtResp->pItm->pLine == NULL ) )
+    {
+        LogError( ( "_GetURCIndicationOption: Input Line passed is NULL" ) );
+        pktStatus = CELLULAR_PKT_STATUS_FAILURE;
+    }
+    else
+    {
+        pInputLine = pAtResp->pItm->pLine;
+        atCoreStatus = Cellular_ATRemovePrefix( &pInputLine );
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATRemoveAllWhiteSpaces( pInputLine );
+        }
+
+        if( atCoreStatus != CELLULAR_AT_SUCCESS )
+        {
+            pktStatus = _Cellular_TranslateAtCoreStatus( atCoreStatus );
+        }
+    }
+
+    if( pktStatus == CELLULAR_PKT_STATUS_OK )
+    {
+        parseStatus = _parseURCIndicationOption( pInputLine, pURCIndicationOption );
+
+        if( parseStatus != true )
+        {
+            *pURCIndicationOption = BG770_URC_INDICATION_OPTION_UNKNOWN;
+            pktStatus = CELLULAR_PKT_STATUS_FAILURE;
+        }
+    }
+
+    return pktStatus;
+}
+
+static CellularError_t _GetURCIndicationOption( CellularHandle_t cellularHandle,
+                                                BG770URCIndicationOptionType_t * pURCIndicationOptionType )
+{
+    CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    CellularAtReq_t atReqGetURCIndicationOption =
+    {
+        "AT+QURCCFG=\"urcport\"",
+        CELLULAR_AT_WITH_PREFIX,
+        "+QURCCFG",
+        _RecvFuncGetURCIndicationOption,
+        pURCIndicationOptionType,
+        sizeof( BG770URCIndicationOptionType_t ),
+    };
+
+    if( pURCIndicationOptionType == NULL )
+    {
+        cellularStatus = CELLULAR_BAD_PARAMETER;
+    }
+    else
+    {
+        pktStatus = _Cellular_AtcmdRequestWithCallback( pContext, atReqGetURCIndicationOption );
+
+        if( pktStatus != CELLULAR_PKT_STATUS_OK )
+        {
+            LogError( ( "_GetURCIndicationOption: couldn't retrieve URC indication option" ) );
+            cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
+        }
+    }
+
+    return cellularStatus;
+}
+
+/*-----------------------------------------------------------*/
+
+static CellularError_t _SetURCIndicationOption( CellularHandle_t cellularHandle,
+                                                BG770URCIndicationOptionType_t urcIndicationOptionType )
+{
+    CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    char cmdBuf[ CELLULAR_AT_CMD_MAX_SIZE ] = { '\0' };
+    CellularAtReq_t atReqSetURCIndicationOption =
+    {
+        cmdBuf,
+        CELLULAR_AT_NO_RESULT,
+        NULL,
+        NULL,
+        NULL,
+        0,
+    };
+
+    if( urcIndicationOptionType != BG770_URC_INDICATION_OPTION_MAIN &&
+        urcIndicationOptionType != BG770_URC_INDICATION_OPTION_AUX &&
+        urcIndicationOptionType != BG770_URC_INDICATION_OPTION_EMUX )
+    {
+        cellularStatus = CELLULAR_BAD_PARAMETER;
+    }
+    else
+    {
+        /* MISRA Ref 21.6.1 [Use of snprintf] */
+        /* More details at: https://github.com/FreeRTOS/FreeRTOS-Cellular-Interface/blob/main/MISRA.md#rule-216 */
+        /* coverity[misra_c_2012_rule_21_6_violation]. */
+        ( void ) snprintf( cmdBuf, sizeof ( cmdBuf ), "AT+QURCCFG=\"urcport\",%s",
+                           _getURCIndictionOptionString( urcIndicationOptionType ) );
+
+        pktStatus = _Cellular_AtcmdRequestWithCallback( pContext, atReqSetURCIndicationOption );
+
+        if( pktStatus != CELLULAR_PKT_STATUS_OK )
+        {
+            LogError( ( "_SetURCIndicationOption: couldn't set URC indication option" ) );
+            cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
+        }
+    }
+
+    return cellularStatus;
+}
+
