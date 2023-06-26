@@ -2108,7 +2108,9 @@ static CellularPktStatus_t sslSocketRecvDataPrefix( void * pCallbackContext,
     }
     else
     {
-        /* Check if the message is a data response. */
+        /* Check if the message is a data response.
+         * NOTE: This function is called for each line of response (even after data is received),
+         *       therefore, failure to find prefix is not an error condition. */
         if( strncmp( pLine, SSL_SOCKET_DATA_PREFIX_STRING, SSL_SOCKET_DATA_PREFIX_STRING_LENGTH ) == 0 )
         {
             (void) strncpy( pLocalLine, pLine, MAX_QSSLRECV_STRING_PREFIX_STRING );
@@ -2130,13 +2132,6 @@ static CellularPktStatus_t sslSocketRecvDataPrefix( void * pCallbackContext,
             {
                 LogDebug( ( "Data prefix invalid line : \"%s\". ", pLocalLine ) );
                 pDataStart = NULL;
-            }
-        } else {
-            if ( ( lineLength > 0 ) && ( ( lineLength != 4 ) || ( strncmp( pLine, "OK\r\n", 4 ) != 0 ) ) )
-            {
-                (void) strncpy( pLocalLine, pLine, lineLength );
-                pLocalLine[ lineLength ] = '\0';
-                LogError( ( "Data prefix match failed : \"%s\" (len: %lu). ", pLocalLine, lineLength ) );
             }
         }
 
@@ -5508,12 +5503,12 @@ CellularError_t Cellular_GetSocketLastResultCode( CellularHandle_t cellularHandl
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
     CellularAtReq_t atReqGetLastResultCode =
     {
-            "AT+QIGETERROR",
-            CELLULAR_AT_WITH_PREFIX,
-            "+QIGETERROR",
-            _Cellular_RecvFuncGetSocketLastResultCode,
-            lastResultCode,
-            sizeof( *lastResultCode ),
+        "AT+QIGETERROR",
+        CELLULAR_AT_WITH_PREFIX,
+        "+QIGETERROR",
+        _Cellular_RecvFuncGetSocketLastResultCode,
+        lastResultCode,
+        sizeof( *lastResultCode ),
     };
 
     cellularStatus = _Cellular_CheckLibraryStatus( pContext );
