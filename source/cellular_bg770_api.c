@@ -1455,7 +1455,7 @@ static CellularATError_t getDataFromResp( const CellularATCommandResponse_t * pA
                     *pDataRecv->pDataLen, outBufSize ) );
         dataLenToCopy = outBufSize;
         *pDataRecv->pDataLen = outBufSize;
-        // TODO (MV): MAJOR, How is this not an error condition? the socket data stream is now compromised!
+        atCoreStatus = CELLULAR_AT_UNKNOWN;
     }
     else
     {
@@ -1475,7 +1475,10 @@ static CellularATError_t getDataFromResp( const CellularATCommandResponse_t * pA
         else
         {
             LogError( ( "Receive Data: Data pointer NULL" ) );
-            atCoreStatus = CELLULAR_AT_BAD_PARAMETER;
+            if (atCoreStatus == CELLULAR_AT_SUCCESS)
+            {
+                atCoreStatus = CELLULAR_AT_BAD_PARAMETER;
+            }
         }
     }
     else if( *pDataRecv->pDataLen == 0U )
@@ -1486,7 +1489,10 @@ static CellularATError_t getDataFromResp( const CellularATCommandResponse_t * pA
     else
     {
         LogError( ( "Receive Data: Intermediate response empty" ) );
-        atCoreStatus = CELLULAR_AT_BAD_PARAMETER;
+        if (atCoreStatus == CELLULAR_AT_SUCCESS)
+        {
+            atCoreStatus = CELLULAR_AT_BAD_PARAMETER;
+        }
     }
 
     return atCoreStatus;
