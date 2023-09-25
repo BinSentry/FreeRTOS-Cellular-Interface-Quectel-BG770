@@ -28,6 +28,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <limits.h>
+#include <ctype.h>
 
 /* The config header is always included first. */
 #ifndef CELLULAR_DO_NOT_USE_CUSTOM_CONFIG
@@ -109,6 +110,16 @@
 #define MAX_QIRD_STRING_PREFIX_STRING            ( 14U )    /* The max data prefix string is "+QIRD: 1500\r\n" */
 #define MAX_QSSLRECV_STRING_PREFIX_STRING        ( 18U )    /* The max data prefix string is "+QSSLRECV: 1500\r\n" */
 
+#define BG770_MAX_SUPPORTED_LTE_BAND             ( 66U )
+#define BG770_MAX_SUPPORTED_NB_IOT_BAND          ( 66U )
+
+#define GET_BYTE_COUNT(maxBitsNeeded)       ( ( maxBitsNeeded + 7U ) / 8U )             // round up to next byte
+#define GET_HEX_STRING_COUNT(maxBitsNeeded) ( GET_BYTE_COUNT( maxBitsNeeded ) * 2U )    // each nibble takes a character
+
+// NOTE: +2 is for hex value prefix "0x"
+#define BG770_LTE_BAND_HEX_STRING_MAX_LENGTH    ( GET_HEX_STRING_COUNT( BG770_MAX_SUPPORTED_LTE_BAND ) + 2 )
+#define BG770_NB_IOT_BAND_HEX_STRING_MAX_LENGTH ( GET_HEX_STRING_COUNT( BG770_MAX_SUPPORTED_NB_IOT_BAND ) + 2 )
+
 /*-----------------------------------------------------------*/
 
 static const int FLOW_CONTROL_NONE = 0;
@@ -126,6 +137,12 @@ typedef struct _socketDataRecv
     uint8_t * pData;
     CellularSocketAddress_t * pRemoteSocketAddress;
 } _socketDataRecv_t;
+
+typedef struct _bg770FrequencyBands
+{
+    char lteBands_hexString[BG770_LTE_BAND_HEX_STRING_MAX_LENGTH + 1];
+    char nbIotBands_hexString[BG770_NB_IOT_BAND_HEX_STRING_MAX_LENGTH + 1];
+} _bg770FrequencyBands_t;
 
 /*-----------------------------------------------------------*/
 
@@ -450,19 +467,21 @@ static bool _parseSignalQuality( char * pQcsqPayload,
         if( Cellular_ATGetNextTok( &pTmpQcsqPayload, &pToken ) == CELLULAR_AT_SUCCESS )
         {
             atCoreStatus = Cellular_ATStrtoi( pToken, 10, &tempValue );
-
-            if( ( tempValue >= INT16_MIN ) && ( tempValue <= ( int32_t ) INT16_MAX ) )
+            if( atCoreStatus == CELLULAR_AT_SUCCESS )
             {
-                cellularStatus = _Cellular_ConvertCsqSignalRssi( ( int16_t ) tempValue, &pSignalInfo->rssi );
-
-                if( cellularStatus != CELLULAR_SUCCESS )
+                if( ( tempValue >= INT16_MIN ) && ( tempValue <= ( int32_t ) INT16_MAX ) )
                 {
-                    atCoreStatus = CELLULAR_AT_BAD_PARAMETER;
+                    cellularStatus = _Cellular_ConvertCsqSignalRssi( ( int16_t ) tempValue, &pSignalInfo->rssi );
+
+                    if( cellularStatus != CELLULAR_SUCCESS )
+                    {
+                        atCoreStatus = CELLULAR_AT_BAD_PARAMETER;
+                    }
                 }
-            }
-            else
-            {
-                atCoreStatus = CELLULAR_AT_ERROR;
+                else
+                {
+                    atCoreStatus = CELLULAR_AT_ERROR;
+                }
             }
 
             if( atCoreStatus != CELLULAR_AT_SUCCESS )
@@ -483,19 +502,21 @@ static bool _parseSignalQuality( char * pQcsqPayload,
         if( Cellular_ATGetNextTok( &pTmpQcsqPayload, &pToken ) == CELLULAR_AT_SUCCESS )
         {
             atCoreStatus = Cellular_ATStrtoi( pToken, 10, &tempValue );
-
-            if( ( tempValue >= INT16_MIN ) && ( tempValue <= ( int32_t ) INT16_MAX ) )
+            if( atCoreStatus == CELLULAR_AT_SUCCESS )
             {
-                cellularStatus = _Cellular_ConvertCsqSignalBer( ( int16_t ) tempValue, &pSignalInfo->ber );
-
-                if( cellularStatus != CELLULAR_SUCCESS )
+                if( ( tempValue >= INT16_MIN ) && ( tempValue <= ( int32_t ) INT16_MAX ) )
                 {
-                    atCoreStatus = CELLULAR_AT_BAD_PARAMETER;
+                    cellularStatus = _Cellular_ConvertCsqSignalBer( ( int16_t ) tempValue, &pSignalInfo->ber );
+
+                    if( cellularStatus != CELLULAR_SUCCESS )
+                    {
+                        atCoreStatus = CELLULAR_AT_BAD_PARAMETER;
+                    }
                 }
-            }
-            else
-            {
-                atCoreStatus = CELLULAR_AT_ERROR;
+                else
+                {
+                    atCoreStatus = CELLULAR_AT_ERROR;
+                }
             }
 
             if( atCoreStatus != CELLULAR_AT_SUCCESS )
@@ -1404,16 +1425,20 @@ static CellularError_t buildSocketConnect( CellularSocketHandle_t socketHandle,
                                        socketHandle->remoteSocketAddress.port,
                                        socketHandle->dataMode);
 
-            if (socketHandle->localPort != 0) {
+            if( socketHandle->localPort != 0 )
+            {
                 LogWarn( ( "buildSocketConnect: configured localPort ignored for SSL socket" ) );
             }
         }
         else
         {
-            if (socketHandle->socketProtocol == CELLULAR_SOCKET_PROTOCOL_TCP) {
-                (void) strcpy(protocol, "TCP");
-            } else {
-                (void) strcpy(protocol, "UDP SERVICE");
+            if( socketHandle->socketProtocol == CELLULAR_SOCKET_PROTOCOL_TCP )
+            {
+                (void) strcpy( protocol, "TCP" );
+            }
+            else
+            {
+                (void) strcpy( protocol, "UDP SERVICE" );
             }
 
             /* Form the AT command. */
@@ -2460,7 +2485,7 @@ CellularError_t Cellular_GetRatPriority( CellularHandle_t cellularHandle,
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
     uint32_t ratIndex = 0;
 
-    CellularAtReq_t atReqSetRatPriority =
+    CellularAtReq_t atReqGetRatPriority =
     {
         "AT+QCFG=\"nwscanseq\"",
         CELLULAR_AT_WITH_PREFIX,
@@ -2484,7 +2509,7 @@ CellularError_t Cellular_GetRatPriority( CellularHandle_t cellularHandle,
     }
     else
     {
-        pktStatus = _Cellular_AtcmdRequestWithCallback( pContext, atReqSetRatPriority );
+        pktStatus = _Cellular_AtcmdRequestWithCallback(pContext, atReqGetRatPriority );
 
         if( pktStatus == CELLULAR_PKT_STATUS_OK )
         {
@@ -6468,6 +6493,790 @@ CellularError_t Cellular_SetServiceSelection( CellularHandle_t cellularHandle,
             if( pktStatus != CELLULAR_PKT_STATUS_OK )
             {
                 LogError( ( "Cellular_SetServiceSelection: couldn't send service selection" ) );
+                cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
+            }
+        }
+    }
+
+    return cellularStatus;
+}
+
+/*-----------------------------------------------------------*/
+
+static bool _parseFrequencyBands( char * pQcfgBandsPayload,
+                                  _bg770FrequencyBands_t * pFrequencyBands )
+{
+    char * pToken = NULL, * pTmpQcfgBandsPayload = pQcfgBandsPayload;
+    bool parseStatus = true;
+
+    if( ( pFrequencyBands == NULL ) || ( pQcfgBandsPayload == NULL ) )
+    {
+        LogError( ( "_parseFrequencyBands: Invalid Input Parameters" ) );
+        parseStatus = false;
+    }
+
+    if( parseStatus == true )
+    {
+        if( Cellular_ATGetNextTok( &pTmpQcfgBandsPayload, &pToken ) != CELLULAR_AT_SUCCESS ||
+            strcmp( pToken, "\"band\"" ) != 0 )
+        {
+            LogError( ( "_parseFrequencyBands: Error, missing \"band\"" ) );
+            parseStatus = false;
+        }
+    }
+
+    if( parseStatus == true )
+    {
+        // NOTE: expectation that token is present but don't care about the value since GSM is not supported
+        if( Cellular_ATGetNextTok( &pTmpQcfgBandsPayload, &pToken ) != CELLULAR_AT_SUCCESS )
+        {
+            LogError( ( "_parseFrequencyBands: Error, missing GSM frequency bands" ) );
+            parseStatus = false;
+        }
+    }
+
+    if( parseStatus == true )
+    {
+        if( Cellular_ATGetNextTok( &pTmpQcfgBandsPayload, &pToken ) == CELLULAR_AT_SUCCESS )
+        {
+            (void) strncpy( pFrequencyBands->lteBands_hexString, pToken, sizeof ( pFrequencyBands->lteBands_hexString ) );
+            if( pFrequencyBands->lteBands_hexString[ sizeof ( pFrequencyBands->lteBands_hexString ) - 1 ] != '\0' )
+            {
+                pFrequencyBands->lteBands_hexString[ sizeof ( pFrequencyBands->lteBands_hexString ) - 1 ] = '\0';
+                LogError( ( "_parseFrequencyBands: lteBands string truncation. Token '%s' lteBands_hexString '%s'",
+                        pToken, pFrequencyBands->lteBands_hexString ) );
+                parseStatus = false;
+            }
+        }
+        else
+        {
+            LogError( ( "_parseFrequencyBands: lteBands string not present" ) );
+            pFrequencyBands->lteBands_hexString[ 0 ] = '\0';
+            pFrequencyBands->nbIotBands_hexString[ 0 ] = '\0';
+            parseStatus = false;
+        }
+    }
+    else
+    {
+        pFrequencyBands->lteBands_hexString[ 0 ] = '\0';
+        pFrequencyBands->nbIotBands_hexString[ 0 ] = '\0';
+    }
+
+    if( parseStatus == true )
+    {
+        if( Cellular_ATGetNextTok( &pTmpQcfgBandsPayload, &pToken ) == CELLULAR_AT_SUCCESS )
+        {
+            (void) strncpy( pFrequencyBands->nbIotBands_hexString, pToken, sizeof ( pFrequencyBands->nbIotBands_hexString ) );
+            if( pFrequencyBands->nbIotBands_hexString[ sizeof ( pFrequencyBands->nbIotBands_hexString ) - 1 ] != '\0' )
+            {
+                pFrequencyBands->nbIotBands_hexString[ sizeof ( pFrequencyBands->nbIotBands_hexString ) - 1 ] = '\0';
+                LogError( ( "_parseFrequencyBands: nbIotBands string truncation. Token '%s' nbIotBands_hexString '%s'",
+                        pToken, pFrequencyBands->nbIotBands_hexString ) );
+                parseStatus = false;
+            }
+        }
+        else
+        {
+            LogError( ( "_parseFrequencyBands: nbIotBands string not present" ) );
+            pFrequencyBands->nbIotBands_hexString[ 0 ] = '\0';
+            parseStatus = false;
+        }
+    }
+
+    return parseStatus;
+}
+
+static void _removeHexValuePrefixIfPresent(const char **pString) {
+    static const char *const HEX_PREFIX_1 = "0x";
+    static const char *const HEX_PREFIX_2 = "0X";
+    static const size_t HEX_PREFIX_LENGTH = 2;
+
+    if( pString == NULL || *pString == NULL )
+    {
+        LogError( ( "NULL string in _removeHexValuePrefixIfPresent" ) );
+        return;
+    }
+
+    if( strncmp( *pString, HEX_PREFIX_1, HEX_PREFIX_LENGTH ) == 0 ||
+        strncmp( *pString, HEX_PREFIX_2, HEX_PREFIX_LENGTH ) == 0 )
+    {
+        *pString += HEX_PREFIX_LENGTH;
+    }
+}
+
+// NOTE: can handle "0x" prefix in hex string
+static bool _convertLTEFrequencyBandHexStringToBandBitmask( const char *const pBandHexString,
+                                                            const size_t bandHexStringMaxLength,
+                                                            CellularLTEBandMask_t *const pLTEBandMask )
+{
+    if( ( pBandHexString == NULL ) ||  ( pLTEBandMask == NULL ) || ( bandHexStringMaxLength == 0 ) )
+    {
+        return false;
+    }
+
+    size_t bandHexStringLen = strnlen( pBandHexString, bandHexStringMaxLength );
+    if( bandHexStringLen == bandHexStringMaxLength )
+    {
+        // expects a null terminated string
+        return false;
+    }
+
+    const char * pTempBandHexString = &pBandHexString[ 0 ];
+    _removeHexValuePrefixIfPresent( &pTempBandHexString );
+
+    static const size_t LTE_BAND_MASK_LENGTH = sizeof( pLTEBandMask->asBytes );
+    bandHexStringLen = strnlen( pTempBandHexString, bandHexStringMaxLength - 1 );
+    if( bandHexStringLen > LTE_BAND_MASK_LENGTH * 2u )
+    {
+        // hex string doesn't fit in LTE band mask
+        return false;
+    }
+
+    memset( pLTEBandMask->asBytes, 0x00, LTE_BAND_MASK_LENGTH );
+
+    // loop through nibbles and apply to band bitmask
+    unsigned int byteIndex = LTE_BAND_MASK_LENGTH - 1;
+    bool isUpperNibble = false;
+    for( int i = bandHexStringLen - 1; i >= 0; i-- )
+    {
+        char tempBuffer[ 2 ] = { pTempBandHexString[ i ], '\0' };
+        char *pEnd = tempBuffer;
+        long tempVal = strtol( tempBuffer, &pEnd, 16 );
+        if( ( tempVal < 0x0 ) || ( tempVal > 0xF ) )
+        {
+            LogError( ( "_convertLTEFrequencyBandHexStringToBandBitmask non-hex character encountered" ) );
+            return false;
+        }
+        else if( pEnd == NULL || *pEnd != '\0' )
+        {
+            LogError( ( "_convertLTEFrequencyBandHexStringToBandBitmask hex character parsing error" ) );
+            return false;
+        }
+
+        uint8_t byteValue;
+        if( isUpperNibble )
+        {
+            byteValue = ( ( uint8_t ) tempVal << 4u ) & 0xF0;
+        }
+        else
+        {
+            byteValue = ( ( uint8_t ) tempVal ) & 0x0F;
+        }
+
+        if( byteIndex < 0 )
+        {
+            LogError( ( "Error converting frequency band hex string to bitmask, bitmask index underflow" ) );
+            return false;
+        }
+
+        pLTEBandMask->asBytes[ byteIndex ] |= byteValue;
+
+        if( isUpperNibble )
+        {
+            byteIndex--;
+        }
+
+        isUpperNibble = !isUpperNibble;
+    }
+
+    return true;
+}
+
+/* FreeRTOS Cellular Library types. */
+/* coverity[misra_c_2012_rule_8_13_violation] */
+static CellularPktStatus_t _RecvFuncGetFrequencyBands( CellularContext_t * pContext,
+                                                       const CellularATCommandResponse_t * pAtResp,
+                                                       void * pData,
+                                                       uint16_t dataLen )
+{
+    char * pInputLine = NULL;
+    CellularLTEBandMask_t * pFrequencyBands = ( CellularLTEBandMask_t * ) pData;
+    bool parseStatus = true;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    CellularATError_t atCoreStatus = CELLULAR_AT_SUCCESS;
+    _bg770FrequencyBands_t bg770FrequencyBands = { 0 };
+
+    if( pContext == NULL )
+    {
+        pktStatus = CELLULAR_PKT_STATUS_INVALID_HANDLE;
+    }
+    else if( ( pFrequencyBands == NULL ) || ( dataLen != sizeof( CellularLTEBandMask_t ) ) )
+    {
+        pktStatus = CELLULAR_PKT_STATUS_BAD_PARAM;
+    }
+    else if( ( pAtResp == NULL ) || ( pAtResp->pItm == NULL ) || ( pAtResp->pItm->pLine == NULL ) )
+    {
+        LogError( ( "_GetFrequencyBands: Input Line passed is NULL" ) );
+        pktStatus = CELLULAR_PKT_STATUS_FAILURE;
+    }
+    else
+    {
+        pInputLine = pAtResp->pItm->pLine;
+        atCoreStatus = Cellular_ATRemovePrefix( &pInputLine );
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATRemoveAllWhiteSpaces( pInputLine );
+        }
+
+        if( atCoreStatus != CELLULAR_AT_SUCCESS )
+        {
+            pktStatus = _Cellular_TranslateAtCoreStatus( atCoreStatus );
+        }
+    }
+
+    if( pktStatus == CELLULAR_PKT_STATUS_OK )
+    {
+        parseStatus = _parseFrequencyBands( pInputLine, &bg770FrequencyBands );
+        if( parseStatus == true )
+        {
+            parseStatus = _convertLTEFrequencyBandHexStringToBandBitmask( bg770FrequencyBands.lteBands_hexString,
+                                                                          sizeof( bg770FrequencyBands.lteBands_hexString ),
+                                                                          pFrequencyBands );
+        }
+
+        if( parseStatus != true )
+        {
+            memset( pFrequencyBands, 0x00, sizeof( CellularLTEBandMask_t ) );
+            pktStatus = CELLULAR_PKT_STATUS_FAILURE;
+        }
+    }
+
+    return pktStatus;
+}
+
+CellularError_t Cellular_GetLTEFrequencyBands( CellularHandle_t cellularHandle,
+                                               CellularLTEBandMask_t * pFrequencyBands )
+{
+    CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    CellularAtReq_t atReqGetFrequencyBands =
+    {
+        "AT+QCFG=\"band\"",
+        CELLULAR_AT_WITH_PREFIX,
+        "+QCFG",
+        _RecvFuncGetFrequencyBands,
+        pFrequencyBands,
+        sizeof( CellularLTEBandMask_t ),
+    };
+
+    if( pFrequencyBands == NULL )
+    {
+        cellularStatus = CELLULAR_BAD_PARAMETER;
+    }
+    else
+    {
+        pktStatus = _Cellular_AtcmdRequestWithCallback( pContext, atReqGetFrequencyBands );
+
+        if( pktStatus != CELLULAR_PKT_STATUS_OK )
+        {
+            LogError( ( "_GetFrequencyBands: couldn't retrieve frequency bands" ) );
+            cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
+        }
+    }
+
+    return cellularStatus;
+}
+
+/*-----------------------------------------------------------*/
+
+static char _getHexCharFromNibble( const uint8_t nibble )
+{
+    uint8_t character = ( nibble & 0xF ) + '0';
+    if (nibble > 9) {
+        character += 0x27;  // difference to convert from numerics to lower case alpha
+    }
+
+    return ( char ) character;
+}
+
+CellularError_t Cellular_ConvertLTEBandMaskToHexString( const CellularLTEBandMask_t *const pLTEBandMask,
+                                                        char *const pBandHexString,
+                                                        const unsigned int bandHexStringMaxLength )
+{
+    if( ( pLTEBandMask == NULL ) || ( pBandHexString == NULL ) || ( bandHexStringMaxLength <= 1u ) )
+    {
+        return CELLULAR_BAD_PARAMETER;
+    }
+
+    static const size_t LTE_BAND_MASK_LENGTH = sizeof( pLTEBandMask->asBytes );
+    const unsigned int LTE_BAND_HEX_STRING_MAX_CHARACTER_LENGTH = bandHexStringMaxLength - 1;   // -1 for room for null character
+
+    // loop through nibbles and apply to band bitmask
+    bool noneZeroValueFound = false;
+    unsigned int charIndex = 0;
+    for( int i = 0; i < LTE_BAND_MASK_LENGTH; i++ )
+    {
+        if( charIndex >= LTE_BAND_HEX_STRING_MAX_CHARACTER_LENGTH - 1 )     // -1 since going to add two characters per byte
+        {
+            LogError( ( "Cellular_ConvertLTEBandMaskToHexString exceeded bandHexStringMaxLength" ) );
+            return CELLULAR_NO_MEMORY;
+        }
+
+        const bool currentByteIsNoneZeroValue = ( pLTEBandMask->asBytes[ i ] != 0 );
+
+        if( currentByteIsNoneZeroValue || noneZeroValueFound )
+        {
+            const uint8_t upperNibble = pLTEBandMask->asBytes[ i ] >> 4u;
+            // only record upper nibble if non-zero or previous non-zero value
+            if( noneZeroValueFound || upperNibble != 0 )
+            {
+                pBandHexString[ charIndex ] = _getHexCharFromNibble( upperNibble );
+                charIndex++;
+            }
+
+            pBandHexString[ charIndex ] = _getHexCharFromNibble( pLTEBandMask->asBytes[ i ] & 0xF );
+            charIndex++;
+
+            if( currentByteIsNoneZeroValue )
+            {
+                noneZeroValueFound = true;
+            }
+        }
+    }
+
+    if ( !noneZeroValueFound )
+    {
+        if( charIndex >= LTE_BAND_HEX_STRING_MAX_CHARACTER_LENGTH )
+        {
+            LogError( ( "Cellular_ConvertLTEBandMaskToHexString exceeded bandHexStringMaxLength" ) );
+            return CELLULAR_NO_MEMORY;
+        }
+        else
+        {
+            pBandHexString[ charIndex ] = '0';
+            charIndex++;
+        }
+    }
+
+    if( charIndex >= bandHexStringMaxLength )
+    {
+        LogError( ( "Cellular_ConvertLTEBandMaskToHexString exceeded bandHexStringMaxLength" ) );
+        return CELLULAR_NO_MEMORY;
+    }
+
+    pBandHexString[ charIndex ] = '\0';
+    return CELLULAR_SUCCESS;
+}
+
+// NOTE: out_bandFiltered can be NULL
+static bool _filterLTEBandMask( CellularLTEBandMask_t *const pDesiredFrequencyBands,
+                                const CellularLTEBandMask_t *const pFrequencyBandsFilter,
+                                bool *const out_bandFiltered )
+{
+    if( ( pDesiredFrequencyBands == NULL ) || ( pFrequencyBandsFilter == NULL ) )
+    {
+        LogError( ( "_filterLTEBandMask: bad parameter" ) );
+        return false;
+    }
+
+    static const size_t LTE_BAND_MASK_LENGTH = sizeof( pDesiredFrequencyBands->asBytes );
+    bool bandFiltered = false;
+    for( int i = 0; i < LTE_BAND_MASK_LENGTH; i++ )
+    {
+        uint8_t origDesiredFrequencyBandsByte = pDesiredFrequencyBands->asBytes[ i ];
+
+        pDesiredFrequencyBands->asBytes[ i ] &= pFrequencyBandsFilter->asBytes[ i ];
+
+        if( origDesiredFrequencyBandsByte != pDesiredFrequencyBands->asBytes[ i ] )
+        {
+            bandFiltered = true;
+        }
+    }
+
+    if( out_bandFiltered != NULL )
+    {
+        *out_bandFiltered = bandFiltered;
+    }
+
+    return true;
+}
+
+static bool _isLTEBandMaskNonZero( const CellularLTEBandMask_t *const pFrequencyBands )
+{
+    if ( pFrequencyBands == NULL )
+    {
+        LogError( ( "_isLTEBandMaskNonZero: bad parameter" ) );
+        return false;
+    }
+
+    static const size_t LTE_BAND_MASK_LENGTH = sizeof( pFrequencyBands->asBytes );
+    for( int i = 0; i < LTE_BAND_MASK_LENGTH; i++ )
+    {
+        if( pFrequencyBands->asBytes[ i ] != 0 )
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+CellularError_t Cellular_SetLTEFrequencyBands( CellularHandle_t cellularHandle,
+                                               const CellularLTEBandMask_t *const pFrequencyBands )
+{
+    CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    CellularLTEBandMask_t frequencyBandsCopy = { 0 };
+    bool bandsFiltered = false;
+    char frequencyBandsBuffer[ BG770_LTE_BAND_HEX_STRING_MAX_LENGTH + 1 ] = { '\0' };
+    char cmdBuf[ CELLULAR_AT_CMD_MAX_SIZE ] = { '\0' };
+    CellularAtReq_t atReqSetFrequencyBands = { 0 };
+
+    atReqSetFrequencyBands.pAtCmd = cmdBuf;
+    atReqSetFrequencyBands.atCmdType = CELLULAR_AT_NO_RESULT;
+    atReqSetFrequencyBands.pAtRspPrefix = NULL;
+    atReqSetFrequencyBands.respCallback = NULL;
+    atReqSetFrequencyBands.pData = NULL;
+    atReqSetFrequencyBands.dataLen = 0;
+
+    cellularStatus = _Cellular_CheckLibraryStatus( pContext );
+
+    if( cellularStatus != CELLULAR_SUCCESS )
+    {
+        LogError( ( "_Cellular_CheckLibraryStatus failed" ) );
+    }
+    else if( ( pFrequencyBands == NULL ) || ( !_isLTEBandMaskNonZero( pFrequencyBands ) ) )
+    {
+        LogError( ( "Cellular_SetLTEFrequencyBands : Bad parameter" ) );
+        cellularStatus = CELLULAR_BAD_PARAMETER;
+    }
+    else
+    {
+        static const CellularLTEBandMask_t SUPPORTED_BG770_LTE_BAND_MASK = {
+                // 0x2000000000f0e189f
+                .asBytes = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x0f, 0x0e, 0x18, 0x9f }
+            };
+
+        memcpy(&frequencyBandsCopy, pFrequencyBands, sizeof( frequencyBandsCopy ) );
+
+        /* Limit to frequency bands supported by Quectel. */
+
+        if( !_filterLTEBandMask( &frequencyBandsCopy, &SUPPORTED_BG770_LTE_BAND_MASK, &bandsFiltered ) )
+        {
+            LogError( ( "Cellular_SetLTEFrequencyBands : Failed to filter frequency bands to BG770 supported" ) );
+            cellularStatus = CELLULAR_INTERNAL_FAILURE;
+        }
+
+        if( cellularStatus == CELLULAR_SUCCESS )
+        {
+            if( !_isLTEBandMaskNonZero( pFrequencyBands ) )
+            {
+                LogError( ( "Cellular_SetLTEFrequencyBands : Specified frequency bands not supported by BG770" ) );
+            }
+            else
+            {
+                if( bandsFiltered )
+                {
+                    LogWarn( ( "Cellular_SetLTEFrequencyBands : Unsupported LTE frequency bands removed" ) );
+                }
+            }
+        }
+
+        /* Form the AT command. */
+
+        if( cellularStatus == CELLULAR_SUCCESS )
+        {
+            cellularStatus = Cellular_ConvertLTEBandMaskToHexString( &frequencyBandsCopy,
+                                                                     frequencyBandsBuffer,
+                                                                     sizeof( frequencyBandsBuffer ) );
+            if( cellularStatus != CELLULAR_SUCCESS )
+            {
+                LogError( ( "Cellular_SetLTEFrequencyBands : Failed to convert LTE frequency bands to hex string" ) );
+                cellularStatus = CELLULAR_INTERNAL_FAILURE;
+            }
+        }
+
+        if( cellularStatus == CELLULAR_SUCCESS )
+        {
+            /* MISRA Ref 21.6.1 [Use of snprintf] */
+            /* More details at: https://github.com/FreeRTOS/FreeRTOS-Cellular-Interface/blob/main/MISRA.md#rule-216 */
+            /* coverity[misra_c_2012_rule_21_6_violation]. */
+            ( void ) snprintf( cmdBuf, CELLULAR_AT_CMD_MAX_SIZE, "AT+QCFG=\"band\",0,0x%s,0",
+                               frequencyBandsBuffer );
+            LogDebug( ( "Cellular_SetLTEFrequencyBands: Set Frequency Band command: %s", cmdBuf ) );
+            pktStatus = _Cellular_AtcmdRequestWithCallback( pContext, atReqSetFrequencyBands );
+
+            if( pktStatus != CELLULAR_PKT_STATUS_OK )
+            {
+                LogError( ( "Cellular_SetLTEFrequencyBands: Couldn't send Set Frequency Bands, err: %d", pktStatus ) );
+                cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
+            }
+        }
+    }
+
+    return cellularStatus;
+}
+
+/*-----------------------------------------------------------*/
+
+static bool _cstringToLowercase(char *const cstring)
+{
+    if( cstring == NULL )
+    {
+        return false;
+    }
+
+    for( int i = 0; cstring[ i ] != '\0'; i++ )
+    {
+        cstring[ i ] = tolower( ( int ) cstring[ i ] );
+    }
+
+    return true;
+}
+
+/* FreeRTOS Cellular Library types. */
+/* coverity[misra_c_2012_rule_8_13_violation] */
+static CellularPktStatus_t _Cellular_RecvFuncGetNetworkOperatorMode( CellularContext_t * pContext,
+                                                                     const CellularATCommandResponse_t * pAtResp,
+                                                                     void * pData,
+                                                                     uint16_t dataLen )
+{
+    char * pInputLine = NULL, * pToken = NULL;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    CellularATError_t atCoreStatus = CELLULAR_AT_SUCCESS;
+    CellularATError_t optionalParamStatus = CELLULAR_AT_UNKNOWN;
+    CellularNetworkOperatorModeConfig_t * pNetworkOperatorModeConfig = NULL;
+    CellularNetworkOperatorMode_t networkOperatorMode = CELLULAR_NETWORK_OPERATOR_MODE_UNKNOWN;
+    bool automaticSelection = false;
+    bool foundPrefix = false;
+
+    if( pContext == NULL )
+    {
+        LogError( ( "GetNetworkOperatorMode: Invalid context" ) );
+        pktStatus = CELLULAR_PKT_STATUS_FAILURE;
+    }
+    else if( ( pAtResp == NULL ) || ( pAtResp->pItm == NULL ) || ( pAtResp->pItm->pLine == NULL ) ||
+             ( pData == NULL ) || ( dataLen != sizeof( CellularNetworkOperatorModeConfig_t ) ) )
+    {
+        LogError( ( "GetNetworkOperatorMode: Invalid param" ) );
+        pktStatus = CELLULAR_PKT_STATUS_BAD_PARAM;
+    }
+    else
+    {
+        pInputLine = pAtResp->pItm->pLine;
+        pNetworkOperatorModeConfig = ( CellularNetworkOperatorModeConfig_t * ) pData;
+
+        // NOTE: This comes first since sometimes prefix is missing
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATRemoveAllWhiteSpaces( pInputLine );
+        }
+
+        // NOTE: Some versions of Quectel firmware so not return the '+QCFG: "nwoper",' prefix
+        //       (despite the datasheet indicating that it should), thus, the extra logic here
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            bool isPrefixPresent = false;
+            CellularATError_t prefixPresentStatus = Cellular_ATIsPrefixPresent( pInputLine, &isPrefixPresent );
+            if( prefixPresentStatus == CELLULAR_AT_SUCCESS )
+            {
+                if( isPrefixPresent )
+                {
+                    atCoreStatus = Cellular_ATRemovePrefix( &pInputLine );
+                    foundPrefix = ( atCoreStatus == CELLULAR_AT_SUCCESS );
+                }
+            }
+            else
+            {
+                LogError( ( "GetNetworkOperatorMode: Unable to determine if AT prefix present, skipping removal" ) );
+            }
+        }
+
+        // Only remove first "nwopen" token if found '+QCFG' prefix
+        if( ( atCoreStatus == CELLULAR_AT_SUCCESS ) && foundPrefix )
+        {
+            atCoreStatus = Cellular_ATGetNextTok( &pInputLine, &pToken );
+
+            if( atCoreStatus == CELLULAR_AT_SUCCESS )
+            {
+                if( strcmp( pToken, "nwoper" ) != 0 )
+                {
+                    LogWarn( ( "GetNetworkOperatorMode: Missing \"nwoper\" after prefix, considering error" ) );
+                    atCoreStatus = CELLULAR_AT_ERROR;
+                }
+            }
+        }
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATGetNextTok( &pInputLine, &pToken );
+        }
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            bool success = _cstringToLowercase( pToken );
+            if( !success )
+            {
+                atCoreStatus = CELLULAR_AT_ERROR;
+            }
+        }
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            if( strcmp( pToken, "\"default\"" ) == 0 )
+            {
+                networkOperatorMode = CELLULAR_NETWORK_OPERATOR_MODE_DEFAULT;
+            }
+            else if( strcmp( pToken, "\"att\"" ) == 0 )
+            {
+                networkOperatorMode = CELLULAR_NETWORK_OPERATOR_MODE_ATT;
+            }
+            else if( strcmp( pToken, "\"vzw\"" ) == 0 )
+            {
+                networkOperatorMode = CELLULAR_NETWORK_OPERATOR_MODE_VERIZON;
+            }
+            else
+            {
+                LogWarn( ( "GetNetworkOperatorMode: Unknown network operator (%s)", pToken ) );
+                networkOperatorMode = CELLULAR_NETWORK_OPERATOR_MODE_UNKNOWN;
+            }
+
+            LogDebug( ( "Network operator mode: %s (%d)", pToken, networkOperatorMode ) );
+        }
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            optionalParamStatus = Cellular_ATGetNextTok( &pInputLine, &pToken );
+        }
+
+        if( optionalParamStatus == CELLULAR_AT_SUCCESS )
+        {
+            (void) _cstringToLowercase( pToken );
+
+            if( strcmp( pToken, "\"auto\"" ) == 0 )
+            {
+                LogDebug( ( "GetNetworkOperatorMode: Network operator mode in \"AUTO\"", pToken ) );
+                automaticSelection = true;
+            }
+            else
+            {
+                LogWarn( ( "GetNetworkOperatorMode: Unknown optional parameter (%s)", pToken ) );
+            }
+        }
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            pNetworkOperatorModeConfig->networkOperatorMode = networkOperatorMode;
+            pNetworkOperatorModeConfig->automaticSelection = automaticSelection;
+        }
+
+        pktStatus = _Cellular_TranslateAtCoreStatus( atCoreStatus );
+    }
+
+    return pktStatus;
+}
+
+CellularError_t Cellular_GetNetworkOperatorMode( CellularHandle_t cellularHandle,
+                                                 CellularNetworkOperatorModeConfig_t * pNetworkOperatorModeConfig )
+{
+    CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+
+    CellularAtReq_t atReqGetNetworkOperatorMode =
+    {
+        "AT+QCFG=\"nwoper\"",
+        CELLULAR_AT_WITH_PREFIX,
+        "+QCFG",
+        _Cellular_RecvFuncGetNetworkOperatorMode,
+        pNetworkOperatorModeConfig,
+        sizeof( CellularNetworkOperatorModeConfig_t ),
+    };
+
+    cellularStatus = _Cellular_CheckLibraryStatus( pContext );
+
+    if( cellularStatus != CELLULAR_SUCCESS )
+    {
+        LogDebug( ( "_Cellular_CheckLibraryStatus failed" ) );
+    }
+    else if( pNetworkOperatorModeConfig == NULL )
+    {
+        cellularStatus = CELLULAR_BAD_PARAMETER;
+    }
+    else
+    {
+        pktStatus = _Cellular_AtcmdRequestWithCallback( pContext, atReqGetNetworkOperatorMode );
+
+        if( pktStatus != CELLULAR_PKT_STATUS_OK )
+        {
+            LogError( ( "_GetNetworkOperatorMode: couldn't retrieve network operator mode" ) );
+            cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
+        }
+    }
+
+    return cellularStatus;
+}
+
+/*-----------------------------------------------------------*/
+
+CellularError_t Cellular_SetNetworkOperatorMode( CellularHandle_t cellularHandle,
+                                                 CellularNetworkOperatorMode_t networkOperatorMode )
+{
+    CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    char cmdBuf[ CELLULAR_AT_CMD_MAX_SIZE ] = { '\0' };
+    const char * pNetworkOperatorModeString = "\"\"";
+    CellularAtReq_t atReqSetNetworkOperatorMode = { 0 };
+
+    atReqSetNetworkOperatorMode.pAtCmd = cmdBuf;
+    atReqSetNetworkOperatorMode.atCmdType = CELLULAR_AT_NO_RESULT;
+    atReqSetNetworkOperatorMode.pAtRspPrefix = NULL;
+    atReqSetNetworkOperatorMode.respCallback = NULL;
+    atReqSetNetworkOperatorMode.pData = NULL;
+    atReqSetNetworkOperatorMode.dataLen = 0;
+
+    cellularStatus = _Cellular_CheckLibraryStatus( pContext );
+
+    if( cellularStatus != CELLULAR_SUCCESS )
+    {
+        LogError( ( "_Cellular_CheckLibraryStatus failed" ) );
+    }
+    else
+    {
+        /* Form the AT command. */
+
+        switch( networkOperatorMode )
+        {
+            case CELLULAR_NETWORK_OPERATOR_MODE_AUTO:
+                pNetworkOperatorModeString = "\"AUTO\"";
+                break;
+
+            case CELLULAR_NETWORK_OPERATOR_MODE_DEFAULT:
+                pNetworkOperatorModeString = "\"DEFAULT\"";
+                break;
+
+            case CELLULAR_NETWORK_OPERATOR_MODE_ATT:
+                pNetworkOperatorModeString = "\"ATT\"";
+                break;
+
+            case CELLULAR_NETWORK_OPERATOR_MODE_VERIZON:
+                pNetworkOperatorModeString = "\"VZW\"";
+                break;
+
+            default:
+            LogError( ( "Cellular_SetNetworkOperatorMode: invalid network operator mode requested, mode: %d", networkOperatorMode ) );
+                cellularStatus = CELLULAR_BAD_PARAMETER;
+                break;
+        }
+
+        if( cellularStatus == CELLULAR_SUCCESS )
+        {
+            /* MISRA Ref 21.6.1 [Use of snprintf] */
+            /* More details at: https://github.com/FreeRTOS/FreeRTOS-Cellular-Interface/blob/main/MISRA.md#rule-216 */
+            /* coverity[misra_c_2012_rule_21_6_violation]. */
+            ( void ) snprintf( cmdBuf, CELLULAR_AT_CMD_MAX_SIZE, "%s%s",
+                               "AT+QCFG=\"nwoper\",",
+                               pNetworkOperatorModeString );
+            LogDebug( ( "Cellular_SetNetworkOperatorMode: Set network operator mode command: %s", cmdBuf ) );
+            pktStatus = _Cellular_AtcmdRequestWithCallback( pContext, atReqSetNetworkOperatorMode );
+
+            if( pktStatus != CELLULAR_PKT_STATUS_OK )
+            {
+                LogError( ( "Cellular_SetNetworkOperatorMode: couldn't send set network operator mode" ) );
                 cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
             }
         }
