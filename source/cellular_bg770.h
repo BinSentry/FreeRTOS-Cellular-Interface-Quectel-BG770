@@ -23,14 +23,17 @@
  * https://github.com/FreeRTOS
  */
 
-#ifndef __CELLULAR_BG96_H__
-#define __CELLULAR_BG96_H__
+#ifndef __CELLULAR_BG770_H__
+#define __CELLULAR_BG770_H__
 
 /* *INDENT-OFF* */
 #ifdef __cplusplus
     extern "C" {
 #endif
 /* *INDENT-ON* */
+
+/* AT Command timeout for operator selection (COPS AT command) */
+#define OPERATOR_SELECTION_PACKET_REQ_TIMEOUT_MS   ( 180000UL )
 
 /* AT Command timeout for PDN activation */
 #define PDN_ACTIVATION_PACKET_REQ_TIMEOUT_MS       ( 150000UL )
@@ -41,13 +44,24 @@
 /* AT Command timeout for Socket connection */
 #define SOCKET_CONNECT_PACKET_REQ_TIMEOUT_MS       ( 150000UL )
 
+/* SSL negotiation maximum time (configurable) */
+#define SSL_NEGOTIATION_MAX_TIMEOUT_MS             ( 300000UL )
+
+/* AT Command timeout for SSL Socket connection */
+#define SSL_SOCKET_CONNECT_PACKET_REQ_TIMEOUT_MS   ( SOCKET_CONNECT_PACKET_REQ_TIMEOUT_MS + SSL_NEGOTIATION_MAX_TIMEOUT_MS )
+
 #define PACKET_REQ_TIMEOUT_MS                      ( 5000UL )
 
 /* AT Command timeout for Socket disconnection */
 #define SOCKET_DISCONNECT_PACKET_REQ_TIMEOUT_MS    ( 12000UL )
 
-#define DATA_SEND_TIMEOUT_MS                       ( 50000UL )
-#define DATA_READ_TIMEOUT_MS                       ( 50000UL )
+#define DATA_SEND_TIMEOUT_MS                       ( 120000UL )
+#define DATA_READ_TIMEOUT_MS                       ( 120000UL )
+
+#define INIT_EVT_MASK_APP_RDY_RECEIVED     ( 0x0001UL )
+#define INIT_EVT_MASK_ALL_EVENTS           ( INIT_EVT_MASK_APP_RDY_RECEIVED )
+
+#define PSM_VERSION_BIT_MASK               ( 0b00001111u )
 
 /**
  * @brief DNS query result.
@@ -78,7 +92,11 @@ typedef struct cellularModuleContext
     uint8_t dnsIndex;              /* DNS query current index. */
     char * pDnsUsrData;            /* DNS user data to store the result. */
     CellularDnsResultEventCallback_t dnsEventCallback;
-    /* Forward declaration to declar the callback function prototype. */
+
+    /* "APP RDY" URC related variables */
+    PlatformEventGroupHandle_t pInitEvent;
+
+    /* Forward declaration to declare the callback function prototype. */
     /* coverity[misra_c_2012_rule_1_1_violation]. */
 } cellularModuleContext_t;
 
@@ -103,4 +121,4 @@ extern uint32_t CellularUrcTokenWoPrefixTableSize;
 #endif
 /* *INDENT-ON* */
 
-#endif /* ifndef __CELLULAR_BG96_H__ */
+#endif /* ifndef __CELLULAR_BG770_H__ */

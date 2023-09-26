@@ -117,8 +117,27 @@ CellularError_t Cellular_CreateSocket( CellularHandle_t cellularHandle,
                                        CellularSocketProtocol_t socketProtocol,
                                        CellularSocketHandle_t * pSocketHandle )
 {
+    if (socketProtocol == CELLULAR_SOCKET_PROTOCOL_SSL_OVER_TCP) {
+        // Use Cellular_CreateSSLSocket() since need to specify SSL context ID
+        return CELLULAR_BAD_PARAMETER;
+    }
+
     return Cellular_CommonCreateSocket( cellularHandle, pdnContextId, socketDomain, socketType,
                                         socketProtocol, pSocketHandle );
+}
+
+/*-----------------------------------------------------------*/
+
+/* FreeRTOS Cellular Library API. */
+/* coverity[misra_c_2012_rule_8_7_violation] */
+CellularError_t Cellular_CreateSSLSocket( CellularHandle_t cellularHandle,
+                                          uint8_t pdnContextId,
+                                          uint8_t sslContextId,
+                                          CellularSocketDomain_t socketDomain,
+                                          CellularSocketHandle_t * pSocketHandle )
+{
+    return Cellular_CommonCreateSSLSocket( cellularHandle, pdnContextId, sslContextId,
+                                           socketDomain, pSocketHandle );
 }
 
 /*-----------------------------------------------------------*/
