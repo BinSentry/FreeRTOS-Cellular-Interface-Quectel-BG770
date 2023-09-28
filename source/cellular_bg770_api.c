@@ -6860,10 +6860,10 @@ CellularError_t Cellular_ConvertLTEBandMaskToHexString( const CellularLTEBandMas
     return CELLULAR_SUCCESS;
 }
 
-// NOTE: out_bandFiltered can be NULL
+// NOTE: out_bandmaskChanged can be NULL
 static bool _filterLTEBandMask( CellularLTEBandMask_t *const pDesiredFrequencyBands,
                                 const CellularLTEBandMask_t *const pFrequencyBandsFilter,
-                                bool *const out_bandFiltered )
+                                bool *const out_bandmaskChanged )
 {
     if( ( pDesiredFrequencyBands == NULL ) || ( pFrequencyBandsFilter == NULL ) )
     {
@@ -6872,7 +6872,7 @@ static bool _filterLTEBandMask( CellularLTEBandMask_t *const pDesiredFrequencyBa
     }
 
     static const size_t LTE_BAND_MASK_LENGTH = sizeof( pDesiredFrequencyBands->asBytes );
-    bool bandFiltered = false;
+    bool bandmaskChanged = false;
     for( int i = 0; i < LTE_BAND_MASK_LENGTH; i++ )
     {
         uint8_t origDesiredFrequencyBandsByte = pDesiredFrequencyBands->asBytes[ i ];
@@ -6881,19 +6881,19 @@ static bool _filterLTEBandMask( CellularLTEBandMask_t *const pDesiredFrequencyBa
 
         if( origDesiredFrequencyBandsByte != pDesiredFrequencyBands->asBytes[ i ] )
         {
-            bandFiltered = true;
+            bandmaskChanged = true;
         }
     }
 
-    if( out_bandFiltered != NULL )
+    if( out_bandmaskChanged != NULL )
     {
-        *out_bandFiltered = bandFiltered;
+        *out_bandmaskChanged = bandmaskChanged;
     }
 
     return true;
 }
 
-static bool _isLTEBandMaskNonZero( const CellularLTEBandMask_t *const pFrequencyBands )
+bool Cellular_IsLTEBandMaskNonZero( const CellularLTEBandMask_t *const pFrequencyBands )
 {
     if ( pFrequencyBands == NULL )
     {
@@ -6938,7 +6938,7 @@ CellularError_t Cellular_SetLTEFrequencyBands( CellularHandle_t cellularHandle,
     {
         LogError( ( "_Cellular_CheckLibraryStatus failed" ) );
     }
-    else if( ( pFrequencyBands == NULL ) || ( !_isLTEBandMaskNonZero( pFrequencyBands ) ) )
+    else if( ( pFrequencyBands == NULL ) || ( !Cellular_IsLTEBandMaskNonZero( pFrequencyBands ) ) )
     {
         LogError( ( "Cellular_SetLTEFrequencyBands : Bad parameter" ) );
         cellularStatus = CELLULAR_BAD_PARAMETER;
@@ -6962,16 +6962,13 @@ CellularError_t Cellular_SetLTEFrequencyBands( CellularHandle_t cellularHandle,
 
         if( cellularStatus == CELLULAR_SUCCESS )
         {
-            if( !_isLTEBandMaskNonZero( pFrequencyBands ) )
+            if( !Cellular_IsLTEBandMaskNonZero( pFrequencyBands ) )
             {
                 LogError( ( "Cellular_SetLTEFrequencyBands : Specified frequency bands not supported by BG770" ) );
             }
-            else
+            else if( bandsFiltered )
             {
-                if( bandsFiltered )
-                {
-                    LogWarn( ( "Cellular_SetLTEFrequencyBands : Unsupported LTE frequency bands removed" ) );
-                }
+                LogWarn( ( "Cellular_SetLTEFrequencyBands : Unsupported LTE frequency bands removed" ) );
             }
         }
 
