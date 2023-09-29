@@ -41,7 +41,7 @@
 /*-----------------------------------------------------------*/
 
 #define ENABLE_MODULE_UE_RETRY_COUNT       ( 4U )
-#define ENABLE_MODULE_UE_RETRY_TIMEOUT     ( 15000U )   /* observed at least 11000 */
+#define ENABLE_MODULE_UE_RETRY_TIMEOUT     ( 18000U )   /* observed at least 17113 ms */
 #define BG770_NWSCANSEQ_CMD_MAX_SIZE       ( 30U ) /* Need at least the length of AT+QCFG="nwscanseq",020301,1\0. */
 
 #define BG770_MAX_SUPPORTED_LTE_BAND       ( 66U )
@@ -82,8 +82,8 @@ static const TickType_t SHORT_DELAY_ticks = pdMS_TO_TICKS( 10U );
 static CellularError_t sendAtCommandWithRetryTimeout( CellularContext_t * pContext,
                                                       const CellularAtReq_t * pAtReq );
 
-static CellularError_t _GetFrequencyBands( CellularHandle_t cellularHandle,
-                                           BG770FrequencyBands_t * pFrequencyBands );
+static CellularError_t _GetLwM2MEnabled( CellularHandle_t cellularHandle,
+                                         bool * pLwM2MEnabled );
 
 static CellularError_t _GetURCIndicationOption( CellularHandle_t cellularHandle,
                                                 BG770URCIndicationOptionType_t * pURCIndicationOptionType );
@@ -310,85 +310,6 @@ CellularError_t Cellular_ModuleCleanUp( const CellularContext_t * pContext )
 
 /*-----------------------------------------------------------*/
 
-static void _removeHexValuePrefixIfPresent(const char **pString) {
-    static const char *HEX_PREFIX_1 = "0x";
-    static const char *HEX_PREFIX_2 = "0x";
-    static const size_t HEX_PREFIX_LENGTH = 2;
-
-    if( pString == NULL || *pString == NULL )
-    {
-        LogError( ( "NULL string in _removeHexValuePrefixIfPresent" ) );
-        return;
-    }
-
-    if( strncmp( *pString, HEX_PREFIX_1, HEX_PREFIX_LENGTH ) == 0 ||
-        strncmp( *pString, HEX_PREFIX_2, HEX_PREFIX_LENGTH ) == 0 )
-    {
-        *pString += HEX_PREFIX_LENGTH;
-    }
-}
-
-// NOTE: strings expected to be free of whitespace and may contain
-static bool _areHexStringChannelMasksEquivalent(const char *channelMaskHexString1, const char *channelMaskHexString2) {
-
-    if( channelMaskHexString1 == NULL || channelMaskHexString2 == NULL )
-    {
-        return false;
-    }
-
-    _removeHexValuePrefixIfPresent( &channelMaskHexString1 );
-    _removeHexValuePrefixIfPresent( &channelMaskHexString2 );
-
-    const size_t channelMask1Size = strlen( channelMaskHexString1 );
-    const size_t channelMask2Size = strlen( channelMaskHexString2 );
-
-    if( channelMask1Size == channelMask2Size &&
-        memcmp( channelMaskHexString1, channelMaskHexString2, channelMask1Size ) == 0 )
-    {
-        return true;    // check for strict equality first
-    }
-
-    // next check if channel masks are equivalent if initial zero bytes are removed
-    if( channelMask1Size > 0 && channelMaskHexString2 > 0 )
-    {
-        int firstImportantByte1;
-        for( firstImportantByte1 = 0; firstImportantByte1 < channelMask1Size; firstImportantByte1++ )
-        {
-            if( channelMaskHexString1[ firstImportantByte1 ] != '0' )
-            {
-                break;
-            }
-        }
-
-        int firstImportantByte2;
-        for( firstImportantByte2 = 0; firstImportantByte2 < channelMask2Size; firstImportantByte2++ )
-        {
-            if( channelMaskHexString2[ firstImportantByte2 ] != '0')
-            {
-                break;
-            }
-        }
-
-        // confirm there is still something to compare after initial zeroes are removed
-        if( firstImportantByte1 < channelMask1Size && firstImportantByte2 < channelMask2Size )
-        {
-            size_t importantChannelMask1Size = channelMask1Size - firstImportantByte1;
-            size_t importantChannelMask2Size = channelMask2Size - firstImportantByte2;
-
-            if( importantChannelMask1Size == importantChannelMask2Size
-                && memcmp( &channelMaskHexString1[ firstImportantByte1 ], &channelMaskHexString2[ firstImportantByte2 ],
-                           importantChannelMask1Size ) == 0 )
-            {
-                return true;
-            }
-        }
-    }
-
-    return false;
-}
-
-/*-----------------------------------------------------------*/
-
 /* FreeRTOS Cellular Common Library porting interface. */
 /* coverity[misra_c_2012_rule_8_7_violation] */
 CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
@@ -565,47 +486,6 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
         {
             vTaskDelay( SHORT_DELAY_ticks );
 
-            static const char * LTE_BANDMASK_HEX_STRING = "0x2000000000f0e189f";       // FUTURE: Make this configurable
-
-            /* Configure Band configuration to all bands.
-             * NOTE: Order - GSM, LTE, NB-IoT.
-             * GSM (bandmask: 'f') and NB-IoT (bandmask: '200000000090f189f') irrelevant at this point so send '0'
-             * which means don't update */
-
-            /* MISRA Ref 21.6.1 [Use of snprintf] */
-            /* More details at: https://github.com/FreeRTOS/FreeRTOS-Cellular-Interface/blob/main/MISRA.md#rule-216 */
-            /* coverity[misra_c_2012_rule_21_6_violation]. */
-            ( void ) snprintf( cmdBuf, sizeof ( cmdBuf ), "AT+QCFG=\"band\",0,%s,0", LTE_BANDMASK_HEX_STRING );
-
-            atReqGetNoResult.pAtCmd = cmdBuf;
-
-            BG770FrequencyBands_t frequencyBands = { 0 };
-            CellularError_t getFreqBandsStatus = _GetFrequencyBands( pContext, &frequencyBands );
-            if( getFreqBandsStatus != CELLULAR_SUCCESS ||
-                !_areHexStringChannelMasksEquivalent( frequencyBands.lteBands_hexString, LTE_BANDMASK_HEX_STRING ) )
-            {
-                vTaskDelay( SHORT_DELAY_ticks );
-
-                cellularStatus = sendAtCommandWithRetryTimeout( pContext, &atReqGetNoResult );
-                if( cellularStatus == CELLULAR_SUCCESS )
-                {
-                    LogInfo( ( "Cellular_ModuleEnableUE: '%s' command success.", atReqGetNoResult.pAtCmd ) );
-                }
-                else
-                {
-                    LogError( ( "Cellular_ModuleEnableUE: '%s' command failed.", atReqGetNoResult.pAtCmd ) );
-                }
-            }
-            else
-            {
-                LogInfo( ( "Cellular_ModuleEnableUE: '%s' command skipped, already set.", atReqGetNoResult.pAtCmd ) );
-            }
-        }
-
-        if( cellularStatus == CELLULAR_SUCCESS )
-        {
-            vTaskDelay( SHORT_DELAY_ticks );
-
             /* Configure Network Category to be Searched under LTE RAT to eMTC only. */
             atReqGetNoResult.pAtCmd = "AT+QCFG=\"iotopmode\",0,1";
             cellularStatus = sendAtCommandWithRetryTimeout( pContext, &atReqGetNoResult );
@@ -653,7 +533,10 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
         {
             vTaskDelay( SHORT_DELAY_ticks );
 
-            atReqGetNoResult.pAtCmd = "AT+CFUN=1";
+            /* SIM enabled, RF off. Need to set additional settings before modem tries to connect. */
+            /* NOTE: Command may fail the first time a new different SIM card is inserted (eg. Soracom -> Verizon or Verizon -> Soracom),
+             *       therefore, it is important that Cellular_Init() be tried more than once. */
+            atReqGetNoResult.pAtCmd = "AT+CFUN=4";
             cellularStatus = sendAtCommandWithRetryTimeout( pContext, &atReqGetNoResult );
             if( cellularStatus == CELLULAR_SUCCESS )
             {
@@ -662,6 +545,40 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
             else
             {
                 LogError( ( "Cellular_ModuleEnableUE: '%s' command failed.", atReqGetNoResult.pAtCmd ) );
+            }
+        }
+
+        if( cellularStatus == CELLULAR_SUCCESS )
+        {
+            vTaskDelay( SHORT_DELAY_ticks );
+
+            /* Disable LwM2M (automatically turned on with Verizon SIM, LwM2M can change APN and mess with normal DNS lookups) */
+            /* MISRA Ref 21.6.1 [Use of snprintf] */
+            /* More details at: https://github.com/FreeRTOS/FreeRTOS-Cellular-Interface/blob/main/MISRA.md#rule-216 */
+            /* coverity[misra_c_2012_rule_21_6_violation]. */
+            ( void ) snprintf( cmdBuf, sizeof ( cmdBuf ), "AT+QCFG=\"lwm2m\",0" );
+
+            atReqGetNoResult.pAtCmd = cmdBuf;
+
+            bool isLwM2MEnabled = false;
+            CellularError_t getLwM2MEnableStatus = _GetLwM2MEnabled(pContext, &isLwM2MEnabled );
+            if( getLwM2MEnableStatus != CELLULAR_SUCCESS || isLwM2MEnabled )
+            {
+                vTaskDelay( SHORT_DELAY_ticks );
+
+                cellularStatus = sendAtCommandWithRetryTimeout( pContext, &atReqGetNoResult );
+                if( cellularStatus == CELLULAR_SUCCESS )
+                {
+                    LogInfo( ( "Cellular_ModuleEnableUE: '%s' command success.", atReqGetNoResult.pAtCmd ) );
+                }
+                else
+                {
+                    LogError( ( "Cellular_ModuleEnableUE: '%s' command failed.", atReqGetNoResult.pAtCmd ) );
+                }
+            }
+            else
+            {
+                LogInfo( ( "Cellular_ModuleEnableUE: '%s' command skipped, already set.", atReqGetNoResult.pAtCmd ) );
             }
         }
     }
@@ -715,84 +632,63 @@ CellularError_t Cellular_ModuleEnableUrc( CellularContext_t * pContext )
 
 /*-----------------------------------------------------------*/
 
-static bool _parseFrequencyBands( char * pQcfgBandsPayload,
-                                  BG770FrequencyBands_t * pFrequencyBands )
+static bool _parseLwM2MEnable( char * pQcfgLwM2MPayload,
+                               bool * pIsLwM2MEnabled )
 {
-    char * pToken = NULL, * pTmpQcfgBandsPayload = pQcfgBandsPayload;
+    char * pToken = NULL, * pTmpQcfgLwM2MPayload = pQcfgLwM2MPayload;
     bool parseStatus = true;
+    CellularATError_t atCoreStatus = CELLULAR_AT_SUCCESS;
+    int32_t tempValue = 0;
 
-    if( ( pFrequencyBands == NULL ) || ( pQcfgBandsPayload == NULL ) )
+    if( ( pIsLwM2MEnabled == NULL ) || ( pQcfgLwM2MPayload == NULL ) )
     {
-        LogError( ( "_parseFrequencyBands: Invalid Input Parameters" ) );
+        LogError( ( "_parseLwM2MEnable: Invalid Input Parameters" ) );
         parseStatus = false;
     }
 
     if( parseStatus == true )
     {
-        if( Cellular_ATGetNextTok( &pTmpQcfgBandsPayload, &pToken ) != CELLULAR_AT_SUCCESS ||
-            strcmp( pToken, "\"band\"" ) != 0 )
+        if( Cellular_ATGetNextTok( &pTmpQcfgLwM2MPayload, &pToken ) != CELLULAR_AT_SUCCESS ||
+            strcmp( pToken, "\"lwm2m\"" ) != 0 )
         {
-            LogError( ( "_parseFrequencyBands: Error, missing \"band\"" ) );
+            LogError( ( "_parseLwM2MEnable: Error, missing \"lwm2m\"" ) );
             parseStatus = false;
         }
     }
 
     if( parseStatus == true )
     {
-        // NOTE: expectation that token is present but don't care about the value since GSM is not supported
-        if( Cellular_ATGetNextTok( &pTmpQcfgBandsPayload, &pToken ) != CELLULAR_AT_SUCCESS )
+        if( Cellular_ATGetNextTok( &pTmpQcfgLwM2MPayload, &pToken ) == CELLULAR_AT_SUCCESS )
         {
-            LogError( ( "_parseFrequencyBands: Error, missing GSM frequency bands" ) );
-            parseStatus = false;
-        }
-    }
-
-    if( parseStatus == true )
-    {
-        if( Cellular_ATGetNextTok( &pTmpQcfgBandsPayload, &pToken ) == CELLULAR_AT_SUCCESS )
-        {
-            (void) strncpy( pFrequencyBands->lteBands_hexString, pToken, sizeof ( pFrequencyBands->lteBands_hexString ) );
-            if( pFrequencyBands->lteBands_hexString[ sizeof ( pFrequencyBands->lteBands_hexString ) - 1 ] != '\0' )
+            atCoreStatus = Cellular_ATStrtoi( pToken, 10, &tempValue );
+            if( atCoreStatus == CELLULAR_AT_SUCCESS)
             {
-                pFrequencyBands->lteBands_hexString[ sizeof ( pFrequencyBands->lteBands_hexString ) - 1 ] = '\0';
-                LogError( ( "_parseFrequencyBands: lteBands string truncation. Token '%s' lteBands_hexString '%s'",
-                            pToken, pFrequencyBands->lteBands_hexString ) );
+                if( ( tempValue >= 0 ) && ( tempValue <= ( int32_t ) 1 ) )
+                {
+                    *pIsLwM2MEnabled = ( tempValue == 1 );
+                }
+                else
+                {
+                    atCoreStatus = CELLULAR_AT_ERROR;
+                }
+            }
+
+            if( atCoreStatus != CELLULAR_AT_SUCCESS )
+            {
+                LogError( ( "_parseLwM2MEnable: Error in processing enable. Token %s", pToken ) );
                 parseStatus = false;
             }
         }
         else
         {
-            LogError( ( "_parseFrequencyBands: lteBands string not present" ) );
-            pFrequencyBands->lteBands_hexString[ 0 ] = '\0';
-            pFrequencyBands->nbIotBands_hexString[ 0 ] = '\0';
+            LogError( ( "_parseLwM2MEnable: enable not present" ) );
+            *pIsLwM2MEnabled = false;
             parseStatus = false;
         }
     }
     else
     {
-        pFrequencyBands->lteBands_hexString[ 0 ] = '\0';
-        pFrequencyBands->nbIotBands_hexString[ 0 ] = '\0';
-    }
-
-    if( parseStatus == true )
-    {
-        if( Cellular_ATGetNextTok( &pTmpQcfgBandsPayload, &pToken ) == CELLULAR_AT_SUCCESS )
-        {
-            (void) strncpy( pFrequencyBands->nbIotBands_hexString, pToken, sizeof ( pFrequencyBands->nbIotBands_hexString ) );
-            if( pFrequencyBands->nbIotBands_hexString[ sizeof ( pFrequencyBands->nbIotBands_hexString ) - 1 ] != '\0' )
-            {
-                pFrequencyBands->nbIotBands_hexString[ sizeof ( pFrequencyBands->nbIotBands_hexString ) - 1 ] = '\0';
-                LogError( ( "_parseFrequencyBands: nbIotBands string truncation. Token '%s' nbIotBands_hexString '%s'",
-                            pToken, pFrequencyBands->nbIotBands_hexString ) );
-                parseStatus = false;
-            }
-        }
-        else
-        {
-            LogError( ( "_parseFrequencyBands: nbIotBands string not present" ) );
-            pFrequencyBands->nbIotBands_hexString[ 0 ] = '\0';
-            parseStatus = false;
-        }
+        *pIsLwM2MEnabled = false;
     }
 
     return parseStatus;
@@ -800,13 +696,13 @@ static bool _parseFrequencyBands( char * pQcfgBandsPayload,
 
 /* FreeRTOS Cellular Library types. */
 /* coverity[misra_c_2012_rule_8_13_violation] */
-static CellularPktStatus_t _RecvFuncGetFrequencyBands( CellularContext_t * pContext,
-                                                       const CellularATCommandResponse_t * pAtResp,
-                                                       void * pData,
-                                                       uint16_t dataLen )
+static CellularPktStatus_t _RecvFuncGetLwM2MEnable( CellularContext_t * pContext,
+                                                    const CellularATCommandResponse_t * pAtResp,
+                                                    void * pData,
+                                                    uint16_t dataLen )
 {
     char * pInputLine = NULL;
-    BG770FrequencyBands_t * pFrequencyBands = ( BG770FrequencyBands_t * ) pData;
+    bool * pIsLwM2MEnabled = ( bool * ) pData;
     bool parseStatus = true;
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
     CellularATError_t atCoreStatus = CELLULAR_AT_SUCCESS;
@@ -815,13 +711,13 @@ static CellularPktStatus_t _RecvFuncGetFrequencyBands( CellularContext_t * pCont
     {
         pktStatus = CELLULAR_PKT_STATUS_INVALID_HANDLE;
     }
-    else if( ( pFrequencyBands == NULL ) || ( dataLen != sizeof( BG770FrequencyBands_t ) ) )
+    else if( ( pIsLwM2MEnabled == NULL ) || ( dataLen != sizeof( bool ) ) )
     {
         pktStatus = CELLULAR_PKT_STATUS_BAD_PARAM;
     }
     else if( ( pAtResp == NULL ) || ( pAtResp->pItm == NULL ) || ( pAtResp->pItm->pLine == NULL ) )
     {
-        LogError( ( "_GetFrequencyBands: Input Line passed is NULL" ) );
+        LogError( ( "_GetLwM2MEnabled: Input Line passed is NULL" ) );
         pktStatus = CELLULAR_PKT_STATUS_FAILURE;
     }
     else
@@ -842,12 +738,11 @@ static CellularPktStatus_t _RecvFuncGetFrequencyBands( CellularContext_t * pCont
 
     if( pktStatus == CELLULAR_PKT_STATUS_OK )
     {
-        parseStatus = _parseFrequencyBands( pInputLine, pFrequencyBands );
+        parseStatus = _parseLwM2MEnable( pInputLine, pIsLwM2MEnabled );
 
         if( parseStatus != true )
         {
-            pFrequencyBands->lteBands_hexString[0] = '\0';
-            pFrequencyBands->nbIotBands_hexString[0] = '\0';
+            *pIsLwM2MEnabled = false;
             pktStatus = CELLULAR_PKT_STATUS_FAILURE;
         }
     }
@@ -855,33 +750,33 @@ static CellularPktStatus_t _RecvFuncGetFrequencyBands( CellularContext_t * pCont
     return pktStatus;
 }
 
-static CellularError_t _GetFrequencyBands( CellularHandle_t cellularHandle,
-                                           BG770FrequencyBands_t * pFrequencyBands )
+static CellularError_t _GetLwM2MEnabled( CellularHandle_t cellularHandle,
+                                         bool * pIsLwM2MEnabled )
 {
     CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
-    CellularAtReq_t atReqGetFrequencyBands =
+    CellularAtReq_t atReqGetLwM2MEnable =
     {
-        "AT+QCFG=\"band\"",
+        "AT+QCFG=\"lwm2m\"",
         CELLULAR_AT_WITH_PREFIX,
         "+QCFG",
-        _RecvFuncGetFrequencyBands,
-        pFrequencyBands,
-        sizeof( BG770FrequencyBands_t ),
+        _RecvFuncGetLwM2MEnable,
+        pIsLwM2MEnabled,
+        sizeof( bool ),
     };
 
-    if( pFrequencyBands == NULL )
+    if( pIsLwM2MEnabled == NULL )
     {
         cellularStatus = CELLULAR_BAD_PARAMETER;
     }
     else
     {
-        pktStatus = _Cellular_AtcmdRequestWithCallback( pContext, atReqGetFrequencyBands );
+        pktStatus = _Cellular_AtcmdRequestWithCallback( pContext, atReqGetLwM2MEnable );
 
         if( pktStatus != CELLULAR_PKT_STATUS_OK )
         {
-            LogError( ( "_GetFrequencyBands: couldn't retrieve frequency bands" ) );
+            LogError( ( "_GetLwM2MEnabled: couldn't retrieve L2M2M enable" ) );
             cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
         }
     }
