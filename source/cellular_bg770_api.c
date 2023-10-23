@@ -6183,7 +6183,7 @@ static bool _parseServiceSelection( char * pCopsPayload,
 
                     const size_t mncSize = operatorLength - CELLULAR_MCC_MAX_SIZE;
                     memcpy( pServiceSelection->operatorPlmn.mnc, &pToken[ CELLULAR_MCC_MAX_SIZE ], mncSize );
-                    pServiceSelection->operatorPlmn.mcc[ mncSize ] = '\0';
+                    pServiceSelection->operatorPlmn.mnc[ mncSize ] = '\0';
                 }
                 else
                 {
@@ -7277,6 +7277,735 @@ CellularError_t Cellular_SetNetworkOperatorMode( CellularHandle_t cellularHandle
                 cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
             }
         }
+    }
+
+    return cellularStatus;
+}
+
+/*-----------------------------------------------------------*/
+
+static bool _parseBoardTemperatures( char * pQTempPayload,
+                                     CellularTemperatures_t * pTemperatures )
+{
+    char * pToken = NULL, * pTmpQTempPayload = pQTempPayload;
+    CellularATError_t atCoreStatus = CELLULAR_AT_SUCCESS;
+    bool parseStatus = true;
+    int32_t tempValue = 0;
+
+    if( ( pTemperatures == NULL ) || ( pQTempPayload == NULL ) )
+    {
+        LogError( ( "_parseBoardTemperatures: Invalid Input Parameters" ) );
+        parseStatus = false;
+    }
+
+    if( parseStatus == true )
+    {
+        if( Cellular_ATGetNextTok( &pTmpQTempPayload, &pToken ) == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATStrtoi( pToken, 10, &tempValue );
+
+            if( atCoreStatus == CELLULAR_AT_SUCCESS )
+            {
+                if( ( tempValue >= INT16_MIN ) && ( tempValue <= INT16_MAX ) )
+                {
+                    pTemperatures->temperature1Celsius = ( int16_t ) tempValue;
+                }
+                else
+                {
+                    atCoreStatus = CELLULAR_AT_ERROR;
+                }
+            }
+
+            if( atCoreStatus != CELLULAR_AT_SUCCESS )
+            {
+                LogError( ( "_parseBoardTemperatures: Error in processing PMIC temperature. Token %s", pToken ) );
+                parseStatus = false;
+                pTemperatures->temperature1Celsius = CELLULAR_INVALID_SIGNAL_VALUE;
+            }
+        }
+        else
+        {
+            LogError( ( "_parseBoardTemperatures: Error, missing PMIC temperature" ) );
+            parseStatus = false;
+        }
+    }
+
+    if( parseStatus == true )
+    {
+        if( Cellular_ATGetNextTok( &pTmpQTempPayload, &pToken ) == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATStrtoi( pToken, 10, &tempValue );
+
+            if( atCoreStatus == CELLULAR_AT_SUCCESS )
+            {
+                if( ( tempValue >= INT16_MIN ) && ( tempValue <= INT16_MAX ) )
+                {
+                    pTemperatures->temperature2Celsius = ( int16_t ) tempValue;
+                }
+                else
+                {
+                    atCoreStatus = CELLULAR_AT_ERROR;
+                }
+            }
+
+            if( atCoreStatus != CELLULAR_AT_SUCCESS )
+            {
+                LogError( ( "_parseBoardTemperatures: Error in processing XO temperature. Token %s", pToken ) );
+                parseStatus = false;
+                pTemperatures->temperature2Celsius = CELLULAR_INVALID_SIGNAL_VALUE;
+            }
+        }
+        else
+        {
+            LogError( ( "_parseBoardTemperatures: Error, missing XO temperature" ) );
+            parseStatus = false;
+        }
+    }
+
+    if( parseStatus == true )
+    {
+        if( Cellular_ATGetNextTok( &pTmpQTempPayload, &pToken ) == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATStrtoi( pToken, 10, &tempValue );
+
+            if( atCoreStatus == CELLULAR_AT_SUCCESS )
+            {
+                if( ( tempValue >= INT16_MIN ) && ( tempValue <= INT16_MAX ) )
+                {
+                    pTemperatures->temperature3Celsius = ( int16_t ) tempValue;
+                }
+                else
+                {
+                    atCoreStatus = CELLULAR_AT_ERROR;
+                }
+            }
+
+            if( atCoreStatus != CELLULAR_AT_SUCCESS )
+            {
+                LogError( ( "_parseBoardTemperatures: Error in processing PA temperature. Token %s", pToken ) );
+                parseStatus = false;
+                pTemperatures->temperature3Celsius = CELLULAR_INVALID_SIGNAL_VALUE;
+            }
+        }
+        else
+        {
+            LogError( ( "_parseBoardTemperatures: Error, missing PA temperature" ) );
+            parseStatus = false;
+        }
+    }
+
+    return parseStatus;
+}
+
+/* FreeRTOS Cellular Library types. */
+/* coverity[misra_c_2012_rule_8_13_violation] */
+static CellularPktStatus_t _Cellular_RecvFuncGetTemperatures( CellularContext_t * pContext,
+                                                              const CellularATCommandResponse_t * pAtResp,
+                                                              void * pData,
+                                                              uint16_t dataLen )
+{
+    char * pInputLine = NULL;
+    CellularTemperatures_t * pTemperatures = ( CellularTemperatures_t * ) pData;
+    bool parseStatus = true;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    CellularATError_t atCoreStatus = CELLULAR_AT_SUCCESS;
+
+    if( pContext == NULL )
+    {
+        pktStatus = CELLULAR_PKT_STATUS_INVALID_HANDLE;
+    }
+    else if( ( pTemperatures == NULL ) || ( dataLen != sizeof( CellularTemperatures_t ) ) )
+    {
+        pktStatus = CELLULAR_PKT_STATUS_BAD_PARAM;
+    }
+    else if( ( pAtResp == NULL ) || ( pAtResp->pItm == NULL ) || ( pAtResp->pItm->pLine == NULL ) )
+    {
+        LogError( ( "_GetBoardTemperatures: Input Line passed is NULL" ) );
+        pktStatus = CELLULAR_PKT_STATUS_FAILURE;
+    }
+    else
+    {
+        pInputLine = pAtResp->pItm->pLine;
+        atCoreStatus = Cellular_ATRemovePrefix( &pInputLine );
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATRemoveAllWhiteSpaces( pInputLine );
+        }
+
+        if( atCoreStatus != CELLULAR_AT_SUCCESS )
+        {
+            pktStatus = _Cellular_TranslateAtCoreStatus( atCoreStatus );
+        }
+    }
+
+    if( pktStatus == CELLULAR_PKT_STATUS_OK )
+    {
+        parseStatus = _parseBoardTemperatures( pInputLine, pTemperatures );
+        if( parseStatus != true )
+        {
+            pTemperatures->temperature1Celsius = CELLULAR_INVALID_SIGNAL_VALUE;
+            pTemperatures->temperature2Celsius = CELLULAR_INVALID_SIGNAL_VALUE;
+            pTemperatures->temperature3Celsius = CELLULAR_INVALID_SIGNAL_VALUE;
+            pktStatus = CELLULAR_PKT_STATUS_FAILURE;
+        }
+    }
+
+    return pktStatus;
+}
+
+CellularError_t Cellular_GetModemTemperatures( CellularHandle_t cellularHandle,
+                                               CellularTemperatures_t * pTemperatures )
+{
+    CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+
+    CellularAtReq_t atReqGetTemperatures =
+    {
+        "AT+QTEMP",
+        CELLULAR_AT_WITH_PREFIX,
+        "+QTEMP",
+        _Cellular_RecvFuncGetTemperatures,
+        pTemperatures,
+        sizeof( CellularTemperatures_t ),
+    };
+
+    cellularStatus = _Cellular_CheckLibraryStatus( pContext );
+
+    if( cellularStatus != CELLULAR_SUCCESS )
+    {
+        LogDebug( ( "_Cellular_CheckLibraryStatus failed" ) );
+    }
+    else if( pTemperatures == NULL )
+    {
+        cellularStatus = CELLULAR_BAD_PARAMETER;
+    }
+    else
+    {
+        pktStatus = _Cellular_AtcmdRequestWithCallback(pContext, atReqGetTemperatures );
+
+        if( pktStatus != CELLULAR_PKT_STATUS_OK )
+        {
+            LogError( ( "_GetBoardTemperatures: couldn't retrieve board temperatures" ) );
+            cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
+        }
+    }
+
+    return cellularStatus;
+}
+
+/*-----------------------------------------------------------*/
+
+static bool _parseLTENetworkInfo( char * pQNWInfoPayload,
+                                  CellularLTENetworkInfo_t * pLTENetworkInfo )
+{
+    static const size_t PLMN_MAX_LENGTH = CELLULAR_MCC_MAX_SIZE + CELLULAR_MNC_MAX_SIZE;
+    char * pToken = NULL, * pTmpQNWInfoPayload = pQNWInfoPayload;
+    CellularATError_t atCoreStatus = CELLULAR_AT_SUCCESS;
+    bool parseStatus = true;
+    size_t operatorLength = 0;
+    int32_t tempValue = 0;
+
+    if( ( pLTENetworkInfo == NULL ) || ( pQNWInfoPayload == NULL ) )
+    {
+        LogError( ( "_GetLTENetworkInfo: Invalid Input Parameters" ) );
+        parseStatus = false;
+    }
+
+    if( parseStatus == true )
+    {
+        if( Cellular_ATGetNextTok( &pTmpQNWInfoPayload, &pToken ) == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATRemoveLeadingWhiteSpaces( &pToken );
+            if( atCoreStatus == CELLULAR_AT_SUCCESS )
+            {
+                atCoreStatus = Cellular_ATRemoveTrailingWhiteSpaces( pToken );
+            }
+
+            if( atCoreStatus == CELLULAR_AT_SUCCESS )
+            {
+                parseStatus = _cstringToLowercase(pToken);
+                if( ( parseStatus != true ) || ( strcmp( pToken, "emtc" ) != 0 ) )
+                {
+                    LogError( ( "_GetLTENetworkInfo: Error, service is not LTE-M (eMTC). Token '%s'", pToken ) );
+                    parseStatus = false;
+                }
+            }
+            else
+            {
+                LogError( ( "_GetLTENetworkInfo: Error, failed to remove leading/trailing service whitespace. Token '%s'", pToken ) );
+                parseStatus = false;
+            }
+        }
+        else
+        {
+            LogError( ( "_GetLTENetworkInfo: Error, missing selected access tech" ) );
+            parseStatus = false;
+        }
+    }
+
+    if( parseStatus == true )
+    {
+        if( Cellular_ATGetNextTok( &pTmpQNWInfoPayload, &pToken ) == CELLULAR_AT_SUCCESS )
+        {
+            operatorLength = strnlen( pToken, PLMN_MAX_LENGTH + 1 );
+            if( ( operatorLength == PLMN_MAX_LENGTH - 1 ) || ( operatorLength == PLMN_MAX_LENGTH ) )
+            {
+                memcpy( pLTENetworkInfo->plmnInfo.mcc, pToken, CELLULAR_MCC_MAX_SIZE );
+                pLTENetworkInfo->plmnInfo.mcc[ CELLULAR_MCC_MAX_SIZE ] = '\0';
+
+                const size_t mncSize = operatorLength - CELLULAR_MCC_MAX_SIZE;
+                memcpy( pLTENetworkInfo->plmnInfo.mnc, &pToken[ CELLULAR_MCC_MAX_SIZE ], mncSize );
+                pLTENetworkInfo->plmnInfo.mnc[ mncSize ] = '\0';
+                atCoreStatus = CELLULAR_AT_SUCCESS;
+            }
+            else
+            {
+                atCoreStatus = CELLULAR_AT_ERROR;
+            }
+
+            if( atCoreStatus != CELLULAR_AT_SUCCESS )
+            {
+                LogError( ( "_GetLTENetworkInfo: Error in processing operator (numeric). Token '%s'", pToken ) );
+                parseStatus = false;
+                pLTENetworkInfo->plmnInfo.mcc[ 0 ] = '\0';
+                pLTENetworkInfo->plmnInfo.mnc[ 0 ] = '\0';
+            }
+        }
+        else
+        {
+            LogError( ( "_GetLTENetworkInfo: Error, missing operator (numeric)" ) );
+            parseStatus = false;
+        }
+    }
+
+    if( parseStatus == true )
+    {
+        if( Cellular_ATGetNextTok( &pTmpQNWInfoPayload, &pToken ) == CELLULAR_AT_SUCCESS )
+        {
+            parseStatus = _cstringToLowercase(pToken);
+            if( ( parseStatus != true ) || ( strnlen( pToken, 13) < 9 ) || ( strncmp( pToken, "lte band", 8 ) != 0 ) )
+            {
+                LogError( ( "_GetLTENetworkInfo: Error, 'LTE BAND' not found. Token '%s'", pToken ) );
+                parseStatus = false;
+            }
+
+            if( parseStatus == true )
+            {
+                pToken = &pToken[9];
+                atCoreStatus = Cellular_ATRemoveLeadingWhiteSpaces( &pToken );
+                if( ( atCoreStatus != CELLULAR_AT_SUCCESS ) || strnlen( pToken, 4 ) == 0 )
+                {
+                    LogError( ( "_GetLTENetworkInfo: Error, LTE band number missing. Token '%s'", pToken ) );
+                    parseStatus = false;
+                }
+            }
+
+            if ( parseStatus == true )
+            {
+                atCoreStatus = Cellular_ATStrtoi( pToken, 10, &tempValue );
+
+                if( atCoreStatus == CELLULAR_AT_SUCCESS )
+                {
+                    if( ( tempValue >= 0 ) && ( tempValue <= UINT16_MAX ) )
+                    {
+                        pLTENetworkInfo->lteBand = ( uint16_t ) tempValue;
+                    }
+                    else
+                    {
+                        atCoreStatus = CELLULAR_AT_ERROR;
+                    }
+                }
+
+                if( atCoreStatus != CELLULAR_AT_SUCCESS )
+                {
+                    LogError( ( "_GetLTENetworkInfo: Error in processing LTE band number. Token '%s'", pToken ) );
+                    parseStatus = false;
+                    pLTENetworkInfo->lteBand = CELLULAR_INVALID_LTE_BAND;
+                }
+            }
+        }
+        else
+        {
+            LogError( ( "_GetLTENetworkInfo: Error, missing LTE band number" ) );
+            parseStatus = false;
+        }
+    }
+
+    if( parseStatus == true )
+    {
+        if( Cellular_ATGetNextTok( &pTmpQNWInfoPayload, &pToken ) == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATStrtoi( pToken, 10, &tempValue );
+
+            if( atCoreStatus == CELLULAR_AT_SUCCESS )
+            {
+                if( ( tempValue >= 0 ) && ( tempValue <= UINT16_MAX ) )
+                {
+                    pLTENetworkInfo->lteChannelId = ( uint16_t ) tempValue;
+                }
+                else
+                {
+                    atCoreStatus = CELLULAR_AT_ERROR;
+                }
+            }
+
+            if( atCoreStatus != CELLULAR_AT_SUCCESS )
+            {
+                LogError( ( "_GetLTENetworkInfo: Error in processing channel ID. Token '%s'", pToken ) );
+                parseStatus = false;
+                pLTENetworkInfo->lteChannelId = CELLULAR_INVALID_LTE_CHANNEL_ID;
+            }
+        }
+        else
+        {
+            LogError( ( "_GetLTENetworkInfo: Error, missing channel ID" ) );
+            parseStatus = false;
+        }
+    }
+
+    return parseStatus;
+}
+
+/* FreeRTOS Cellular Library types. */
+/* coverity[misra_c_2012_rule_8_13_violation] */
+static CellularPktStatus_t _Cellular_RecvFuncGetNetworkInfo( CellularContext_t * pContext,
+                                                             const CellularATCommandResponse_t * pAtResp,
+                                                             void * pData,
+                                                             uint16_t dataLen )
+{
+    char * pInputLine = NULL;
+    CellularLTENetworkInfo_t * pLTENetworkInfo = ( CellularLTENetworkInfo_t * ) pData;
+    bool parseStatus = true;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    CellularATError_t atCoreStatus = CELLULAR_AT_SUCCESS;
+
+    if( pContext == NULL )
+    {
+        pktStatus = CELLULAR_PKT_STATUS_INVALID_HANDLE;
+    }
+    else if( ( pLTENetworkInfo == NULL ) || ( dataLen != sizeof( CellularLTENetworkInfo_t ) ) )
+    {
+        pktStatus = CELLULAR_PKT_STATUS_BAD_PARAM;
+    }
+    else if( ( pAtResp == NULL ) || ( pAtResp->pItm == NULL ) || ( pAtResp->pItm->pLine == NULL ) )
+    {
+        LogError( ( "_GetLTENetworkInfo: Input Line passed is NULL" ) );
+        pktStatus = CELLULAR_PKT_STATUS_FAILURE;
+    }
+    else
+    {
+        pInputLine = pAtResp->pItm->pLine;
+        atCoreStatus = Cellular_ATRemovePrefix( &pInputLine );
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATRemoveAllDoubleQuote( pInputLine );
+        }
+
+        if( atCoreStatus != CELLULAR_AT_SUCCESS )
+        {
+            pktStatus = _Cellular_TranslateAtCoreStatus( atCoreStatus );
+        }
+    }
+
+    if( pktStatus == CELLULAR_PKT_STATUS_OK )
+    {
+        parseStatus = _parseLTENetworkInfo(pInputLine, pLTENetworkInfo);
+        if( parseStatus != true )
+        {
+            memset( &pLTENetworkInfo->plmnInfo, 0x00, sizeof( pLTENetworkInfo->plmnInfo ) );
+            pLTENetworkInfo->lteBand = CELLULAR_INVALID_LTE_BAND;
+            pLTENetworkInfo->lteChannelId = CELLULAR_INVALID_LTE_CHANNEL_ID;
+            pktStatus = CELLULAR_PKT_STATUS_FAILURE;
+        }
+    }
+
+    return pktStatus;
+}
+
+static bool _Cellular_ParseLTENetworkInfoPsRegStatus( char * pCeregPayload,
+                                                      CellularLTENetworkInfo_t * pLTENetworkInfo )
+{
+    char * pToken = NULL, * pTmpCeregPayload = pCeregPayload;
+    CellularATError_t atCoreStatus = CELLULAR_AT_SUCCESS;
+    bool parseStatus = true;
+    int32_t tempValue = 0;
+    uint32_t tempUValue = 0;
+    CellularNetworkRegistrationStatus_t registrationStatus = REGISTRATION_STATUS_UNKNOWN;
+    CellularRat_t rat = CELLULAR_RAT_INVALID;
+
+    if( ( pLTENetworkInfo == NULL ) || ( pCeregPayload == NULL ) )
+    {
+        LogError( ( "_GetLTENetworkInfo: Invalid Input Parameters" ) );
+        parseStatus = false;
+    }
+
+    if( parseStatus == true )
+    {
+        /* NOTE: Don't care about value, but must be present. */
+        if( Cellular_ATGetNextTok( &pTmpCeregPayload, &pToken ) != CELLULAR_AT_SUCCESS )
+        {
+            LogError( ( "_GetLTENetworkInfo: Error, EPS URC state missing." ) );
+            parseStatus = false;
+        }
+    }
+
+    if( parseStatus == true )
+    {
+        if( Cellular_ATGetNextTok( &pTmpCeregPayload, &pToken ) == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATStrtoi( pToken, 10, &tempValue );
+
+            if( atCoreStatus == CELLULAR_AT_SUCCESS )
+            {
+                if( ( tempValue >= 0 ) && ( tempValue <= ( int32_t ) REGISTRATION_STATUS_MAX ) )
+                {
+                    registrationStatus = ( CellularNetworkRegistrationStatus_t ) tempValue;
+                }
+                else
+                {
+                    atCoreStatus = CELLULAR_AT_ERROR;
+                }
+            }
+
+            if( atCoreStatus != CELLULAR_AT_SUCCESS )
+            {
+                LogError( ( "_GetLTENetworkInfo: Error in processing EPS registration status. Token '%s'", pToken ) );
+                parseStatus = false;
+                pLTENetworkInfo->trackingAreaCode = CELLULAR_INVALID_TRACKING_AREA_CODE;
+                pLTENetworkInfo->cellId = CELLULAR_INVALID_CELL_ID;
+            }
+        }
+        else
+        {
+            LogError( ( "_GetLTENetworkInfo: Error, EPS registration status missing." ) );
+            parseStatus = false;
+        }
+    }
+
+    if( parseStatus == true )
+    {
+        if( Cellular_ATGetNextTok( &pTmpCeregPayload, &pToken ) == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATStrtoi( pToken, 16, &tempValue );
+
+            if( atCoreStatus == CELLULAR_AT_SUCCESS )
+            {
+                if( ( tempValue >= 0 ) && ( tempValue <= UINT16_MAX ) )
+                {
+                    pLTENetworkInfo->trackingAreaCode = ( uint16_t ) tempValue;
+                }
+                else
+                {
+                    atCoreStatus = CELLULAR_AT_ERROR;
+                }
+            }
+
+            if( atCoreStatus != CELLULAR_AT_SUCCESS )
+            {
+                LogError( ( "_GetLTENetworkInfo: Error in processing EPS tracking area code. Token '%s'", pToken ) );
+                parseStatus = false;
+                pLTENetworkInfo->trackingAreaCode = CELLULAR_INVALID_TRACKING_AREA_CODE;
+            }
+        }
+        else
+        {
+            LogInfo( ( "_GetLTENetworkInfo: EPS tracking area code not included." ) );
+            pLTENetworkInfo->trackingAreaCode = CELLULAR_INVALID_TRACKING_AREA_CODE;
+        }
+    }
+
+    if( parseStatus == true )
+    {
+        if( Cellular_ATGetNextTok( &pTmpCeregPayload, &pToken ) == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATStrtoui( pToken, 16, &tempUValue );
+
+            if( atCoreStatus == CELLULAR_AT_SUCCESS )
+            {
+                pLTENetworkInfo->cellId = tempUValue;
+            }
+
+            if( atCoreStatus != CELLULAR_AT_SUCCESS )
+            {
+                LogError( ( "_GetLTENetworkInfo: Error in processing EPS cell ID. Token '%s'", pToken ) );
+                parseStatus = false;
+                pLTENetworkInfo->cellId = CELLULAR_INVALID_CELL_ID;
+            }
+        }
+        else
+        {
+            LogInfo( ( "_GetLTENetworkInfo: EPS cell ID not included." ) );
+            pLTENetworkInfo->cellId = CELLULAR_INVALID_CELL_ID;
+        }
+    }
+
+    if( parseStatus == true )
+    {
+        if( Cellular_ATGetNextTok( &pTmpCeregPayload, &pToken ) == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATStrtoi( pToken, 10, &tempValue );
+
+            if( atCoreStatus == CELLULAR_AT_SUCCESS )
+            {
+                if( ( tempValue >= 0 ) && ( tempValue <= ( int32_t ) CELLULAR_RAT_MAX ) )
+                {
+                    rat = ( CellularRat_t ) tempValue;
+                }
+                else
+                {
+                    atCoreStatus = CELLULAR_AT_ERROR;
+                }
+            }
+
+            if( atCoreStatus != CELLULAR_AT_SUCCESS )
+            {
+                LogError( ( "_GetLTENetworkInfo: Error in processing RAT. Token '%s'", pToken ) );
+                parseStatus = false;
+                pLTENetworkInfo->lteChannelId = CELLULAR_INVALID_LTE_CHANNEL_ID;
+            }
+        }
+        else
+        {
+            LogError( ( "_GetLTENetworkInfo: Error, missing RAT" ) );
+            rat = CELLULAR_RAT_LTE; // assume LTE is not specified
+        }
+    }
+
+    if( ( parseStatus == true ) &&
+        ( ( ( registrationStatus != REGISTRATION_STATUS_REGISTERED_HOME ) &&
+                ( registrationStatus != REGISTRATION_STATUS_ROAMING_REGISTERED ) ) ||
+            ( rat != CELLULAR_RAT_LTE ) ) )
+    {
+        pLTENetworkInfo->trackingAreaCode = CELLULAR_INVALID_TRACKING_AREA_CODE;
+        pLTENetworkInfo->cellId = CELLULAR_INVALID_CELL_ID;
+    }
+
+    return parseStatus;
+}
+
+/* FreeRTOS Cellular Library types. */
+/* coverity[misra_c_2012_rule_8_13_violation] */
+static CellularPktStatus_t _Cellular_RecvFuncGetNetworkPsRegStatus( CellularContext_t * pContext,
+                                                                    const CellularATCommandResponse_t * pAtResp,
+                                                                    void * pData,
+                                                                    uint16_t dataLen )
+{
+    char * pInputLine = NULL;
+    CellularLTENetworkInfo_t * pLTENetworkInfo = ( CellularLTENetworkInfo_t * ) pData;
+    bool parseStatus = true;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    CellularATError_t atCoreStatus = CELLULAR_AT_SUCCESS;
+
+    if( pContext == NULL )
+    {
+        pktStatus = CELLULAR_PKT_STATUS_INVALID_HANDLE;
+    }
+    else if( ( pLTENetworkInfo == NULL ) || ( dataLen != sizeof( CellularLTENetworkInfo_t ) ) )
+    {
+        pktStatus = CELLULAR_PKT_STATUS_BAD_PARAM;
+    }
+    else if( ( pAtResp == NULL ) || ( pAtResp->pItm == NULL ) || ( pAtResp->pItm->pLine == NULL ) )
+    {
+        LogError( ( "_GetLTENetworkInfo: Input Line passed is NULL" ) );
+        pktStatus = CELLULAR_PKT_STATUS_FAILURE;
+    }
+    else
+    {
+        pInputLine = pAtResp->pItm->pLine;
+        atCoreStatus = Cellular_ATRemovePrefix( &pInputLine );
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATRemoveAllDoubleQuote( pInputLine );
+        }
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATRemoveAllWhiteSpaces( pInputLine );
+        }
+
+        if( atCoreStatus != CELLULAR_AT_SUCCESS )
+        {
+            pktStatus = _Cellular_TranslateAtCoreStatus( atCoreStatus );
+        }
+    }
+
+    if( pktStatus == CELLULAR_PKT_STATUS_OK )
+    {
+        parseStatus = _Cellular_ParseLTENetworkInfoPsRegStatus( pInputLine, pLTENetworkInfo );
+        if( parseStatus != true )
+        {
+            pLTENetworkInfo->trackingAreaCode = CELLULAR_INVALID_TRACKING_AREA_CODE;
+            pLTENetworkInfo->cellId = CELLULAR_INVALID_CELL_ID;
+        }
+    }
+
+    return pktStatus;
+}
+
+CellularError_t Cellular_GetLTENetworkInfo( CellularHandle_t cellularHandle,
+                                            CellularLTENetworkInfo_t * pLTENetworkInfo )
+{
+    CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+
+    CellularAtReq_t atReqGetNetworkInfo =
+    {
+        "AT+QNWINFO",
+        CELLULAR_AT_WITH_PREFIX,
+        "+QNWINFO",
+        _Cellular_RecvFuncGetNetworkInfo,
+        pLTENetworkInfo,
+        sizeof( CellularLTENetworkInfo_t ),
+    };
+
+    CellularAtReq_t atReqGetNetworkRegistrationStatus =
+    {
+            "AT+CEREG?",
+            CELLULAR_AT_WITH_PREFIX,
+            "+CEREG",
+            _Cellular_RecvFuncGetNetworkPsRegStatus,
+            pLTENetworkInfo,
+            sizeof( CellularLTENetworkInfo_t ),
+    };
+
+    cellularStatus = _Cellular_CheckLibraryStatus( pContext );
+
+    if( cellularStatus != CELLULAR_SUCCESS )
+    {
+        LogDebug( ( "_Cellular_CheckLibraryStatus failed" ) );
+    }
+    else if( pLTENetworkInfo == NULL )
+    {
+        cellularStatus = CELLULAR_BAD_PARAMETER;
+    }
+    else
+    {
+        pktStatus = _Cellular_AtcmdRequestWithCallback(pContext, atReqGetNetworkInfo );
+
+        if( pktStatus != CELLULAR_PKT_STATUS_OK )
+        {
+            LogError( ( "_GetLTENetworkInfo: couldn't retrieve network info" ) );
+            cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
+        }
+    }
+
+    if( cellularStatus == CELLULAR_SUCCESS )
+    {
+        pktStatus = _Cellular_AtcmdRequestWithCallback(pContext, atReqGetNetworkRegistrationStatus );
+
+        if( pktStatus != CELLULAR_PKT_STATUS_OK )
+        {
+            LogError( ( "_GetLTENetworkInfo: couldn't retrieve network registration status" ) );
+            cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
+        }
+    } else {
+        pLTENetworkInfo->cellId = CELLULAR_INVALID_CELL_ID;
+        pLTENetworkInfo->trackingAreaCode = CELLULAR_INVALID_TRACKING_AREA_CODE;
     }
 
     return cellularStatus;
