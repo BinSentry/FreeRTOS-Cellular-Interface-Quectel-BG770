@@ -7062,7 +7062,7 @@ static CellularPktStatus_t _Cellular_RecvFuncGetNetworkOperatorMode( CellularCon
             atCoreStatus = Cellular_ATRemoveAllWhiteSpaces( pInputLine );
         }
 
-        // NOTE: Some versions of Quectel firmware so not return the '+QCFG: "nwoper",' prefix
+        // NOTE: Some versions of Quectel firmware do not return the '+QCFG: "nwoper",' prefix (e.g. BG770AGLAAR01A05_01.200.01.200)
         //       (despite the datasheet indicating that it should), thus, the extra logic here
         if( atCoreStatus == CELLULAR_AT_SUCCESS )
         {
@@ -7082,24 +7082,25 @@ static CellularPktStatus_t _Cellular_RecvFuncGetNetworkOperatorMode( CellularCon
             }
         }
 
-        // Only remove first "nwopen" token if found '+QCFG' prefix
-        if( ( atCoreStatus == CELLULAR_AT_SUCCESS ) && foundPrefix )
-        {
-            atCoreStatus = Cellular_ATGetNextTok( &pInputLine, &pToken );
-
-            if( atCoreStatus == CELLULAR_AT_SUCCESS )
-            {
-                if( strcmp( pToken, "nwoper" ) != 0 )
-                {
-                    LogWarn( ( "GetNetworkOperatorMode: Missing \"nwoper\" after prefix, considering error" ) );
-                    atCoreStatus = CELLULAR_AT_ERROR;
-                }
-            }
-        }
-
         if( atCoreStatus == CELLULAR_AT_SUCCESS )
         {
             atCoreStatus = Cellular_ATGetNextTok( &pInputLine, &pToken );
+
+            // Only remove "nwopen" token if found '+QCFG' prefix
+            if( ( atCoreStatus == CELLULAR_AT_SUCCESS ) && foundPrefix )
+            {
+                if( strcmp( pToken, "\"nwoper\"" ) != 0 )
+                {
+                    // NOTE: Quectel F/W BG770AGLAAR01A05_01.202.01.202 (and possibly subsequent F/W versions) return "+QCFG:",
+                    //       but not "nwoper" so cannot treat this as an error
+                    LogWarn( ( "GetNetworkOperatorMode: Missing \"nwoper\" after prefix, possible error. Token: '%s'", pToken ) );
+                }
+                else
+                {
+                    // get next token if found "nwoper"
+                    atCoreStatus = Cellular_ATGetNextTok( &pInputLine, &pToken );
+                }
+            }
         }
 
         if( atCoreStatus == CELLULAR_AT_SUCCESS )
@@ -7107,6 +7108,8 @@ static CellularPktStatus_t _Cellular_RecvFuncGetNetworkOperatorMode( CellularCon
             bool success = _cstringToLowercase( pToken );
             if( !success )
             {
+                LogError( ( "GetNetworkOperatorMode: Could not convert operator name token ('%s') to lowercase",
+                          ( ( pToken == NULL ) ? "<null>" : pToken ) ) );
                 atCoreStatus = CELLULAR_AT_ERROR;
             }
         }
