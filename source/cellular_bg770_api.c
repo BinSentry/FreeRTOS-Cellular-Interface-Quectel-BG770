@@ -3854,8 +3854,14 @@ CellularError_t Cellular_GetSimCardStatus( CellularHandle_t cellularHandle,
         pSimCardStatus->simCardLockState = CELLULAR_SIM_CARD_LOCK_UNKNOWN;
 
         pktStatus = _Cellular_AtcmdRequestWithCallback( pContext, atReqGetSimCardStatus );
+        if( pktStatus == CELLULAR_PKT_STATUS_FAILURE )
+        {
+            LogError( ( "_Cellular_GetSimStatus, Sim Insert State unknown, err: %d.", pktStatus ) );
+        }
 
-        if( pktStatus == CELLULAR_PKT_STATUS_OK )
+        // proceed with reading SIM lock status on failure of last command since failure can occur if problem with
+        // SIM presence detection (but SIM can still potentially be used)
+        if( ( pktStatus == CELLULAR_PKT_STATUS_OK ) || ( pktStatus == CELLULAR_PKT_STATUS_FAILURE ) )
         {
             pktStatus = _Cellular_AtcmdRequestWithCallback( pContext, atReqGetSimLockStatus );
         }
