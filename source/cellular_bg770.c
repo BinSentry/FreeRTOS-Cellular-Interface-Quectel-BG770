@@ -471,9 +471,13 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
             /* Setting debug output enable. */
             atReqGetNoResult.pAtCmd = "AT+QCFGEXT=\"debug\",1";
             CellularError_t debugResult = sendAtCommandWithRetryTimeout( pContext, &atReqGetNoResult );
-            if( debugResult != CELLULAR_SUCCESS )
+            if( debugResult == CELLULAR_SUCCESS )
             {
-                LogWarn( ( "Cellular_ModuleEnableUE: Debug output enable failed" ) );
+                LogInfo( ( "Cellular_ModuleEnableUE: '%s' command success.", atReqGetNoResult.pAtCmd ) );
+            }
+            else
+            {
+                LogWarn( ( "Cellular_ModuleEnableUE: '%s' command failed.", atReqGetNoResult.pAtCmd ) );
             }
         }
         else
@@ -487,6 +491,9 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
             vTaskDelay( SHORT_DELAY_ticks );
 
             /* Configure Network Category to be Searched under LTE RAT to eMTC only. */
+            /* FUTURE: From Quectel Support, this command "will force rescan bands and take more time to register.
+             *         Actually, it is not necessary to send at each power cycle."; therefore,
+                       should check if already set correctly and only send if changed. */
             atReqGetNoResult.pAtCmd = "AT+QCFG=\"iotopmode\",0,1";
             cellularStatus = sendAtCommandWithRetryTimeout( pContext, &atReqGetNoResult );
             if( cellularStatus == CELLULAR_SUCCESS )
@@ -497,6 +504,10 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
             {
                 LogError( ( "Cellular_ModuleEnableUE: '%s' command failed.", atReqGetNoResult.pAtCmd ) );
             }
+        }
+        else
+        {
+            LogWarn( ( "Cellular_ModuleEnableUE: eMTC (LTE-M) only network category skipped due to error" ) );
         }
 
         if( cellularStatus == CELLULAR_SUCCESS )
@@ -518,6 +529,9 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
 
             strcat( ratSelectCmd, ",1" ); /* Take effect immediately. */
             atReqGetNoResult.pAtCmd = ratSelectCmd;
+            /* FUTURE: From Quectel Support, this command "will force rescan bands and take more time to register.
+             *         Actually, it is not necessary to send at each power cycle."; therefore,
+                       should check if already set correctly and only send if changed. */
             cellularStatus = sendAtCommandWithRetryTimeout( pContext, &atReqGetNoResult );
             if( cellularStatus == CELLULAR_SUCCESS )
             {
@@ -527,6 +541,10 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
             {
                 LogError( ( "Cellular_ModuleEnableUE: '%s' command failed.", atReqGetNoResult.pAtCmd ) );
             }
+        }
+        else
+        {
+            LogWarn( ( "Cellular_ModuleEnableUE: Network scan RAT list skipped due to error" ) );
         }
 
         if( cellularStatus == CELLULAR_SUCCESS )
@@ -546,6 +564,10 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
             {
                 LogError( ( "Cellular_ModuleEnableUE: '%s' command failed.", atReqGetNoResult.pAtCmd ) );
             }
+        }
+        else
+        {
+            LogWarn( ( "Cellular_ModuleEnableUE: Skipped Set RF off / SIM enabled due to error" ) );
         }
 
         if( cellularStatus == CELLULAR_SUCCESS )
@@ -580,6 +602,10 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
             {
                 LogInfo( ( "Cellular_ModuleEnableUE: '%s' command skipped, already set.", atReqGetNoResult.pAtCmd ) );
             }
+        }
+        else
+        {
+            LogWarn( ( "Cellular_ModuleEnableUE: Disable LwM2M skipped due to error" ) );
         }
     }
 
