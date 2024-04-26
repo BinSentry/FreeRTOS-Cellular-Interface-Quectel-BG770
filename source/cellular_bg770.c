@@ -383,7 +383,7 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
 
         if( cellularStatus == CELLULAR_SUCCESS )
         {
-            /* Disable echo. */
+            /* Disable echo - command is not automatically saved to user profile, don't need to perform read before write. */
             atReqGetWithResult.pAtCmd = "ATE0";
             cellularStatus = sendAtCommandWithRetryTimeout( pContext, &atReqGetWithResult );
             if( cellularStatus == CELLULAR_SUCCESS )
@@ -398,7 +398,7 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
 
         if( cellularStatus == CELLULAR_SUCCESS )
         {
-            /* Disable DTR function. */
+            /* Disable DTR function - command is not automatically saved to user profile, don't need to perform read before write. */
             atReqGetNoResult.pAtCmd = "AT&D0";
             cellularStatus = sendAtCommandWithRetryTimeout( pContext, &atReqGetNoResult );
             if( cellularStatus == CELLULAR_SUCCESS )
@@ -416,7 +416,7 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
             {
                 vTaskDelay( SHORT_DELAY_ticks );
 
-                /* Enable RTS/CTS hardware flow control. */
+                /* Enable RTS/CTS hardware flow control - command is not saved to user profile, don't need to perform read before write. . */
                 atReqGetNoResult.pAtCmd = "AT+IFC=2,2";
                 cellularStatus = sendAtCommandWithRetryTimeout( pContext, &atReqGetNoResult );
                 if( cellularStatus == CELLULAR_SUCCESS )
@@ -463,13 +463,19 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
             }
         }
 
-#ifdef CELLULAR_QUECTEL_ENABLE_DEBUG_UART
+//#define CELLULAR_QUECTEL_ENABLE_DEBUG_UART
+//#define CELLULAR_QUECTEL_DISABLE_DEBUG_UART
+#if defined(CELLULAR_QUECTEL_ENABLE_DEBUG_UART) || defined(CELLULAR_QUECTEL_DISABLE_DEBUG_UART)
         if( cellularStatus == CELLULAR_SUCCESS )
         {
             vTaskDelay( SHORT_DELAY_ticks );
 
             /* Setting debug output enable. */
+#ifdef CELLULAR_QUECTEL_ENABLE_DEBUG_UART
             atReqGetNoResult.pAtCmd = "AT+QCFGEXT=\"debug\",1";
+#else
+            atReqGetNoResult.pAtCmd = "AT+QCFGEXT=\"debug\",0";
+#endif
             CellularError_t debugResult = sendAtCommandWithRetryTimeout( pContext, &atReqGetNoResult );
             if( debugResult == CELLULAR_SUCCESS )
             {
@@ -486,6 +492,7 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
         }
 #endif
 
+        // TODO (MV): Implement read before write
         if( cellularStatus == CELLULAR_SUCCESS )
         {
             vTaskDelay( SHORT_DELAY_ticks );
@@ -510,6 +517,7 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
             LogWarn( ( "Cellular_ModuleEnableUE: eMTC (LTE-M) only network category skipped due to error" ) );
         }
 
+        // TODO (MV): Implement read before write
         if( cellularStatus == CELLULAR_SUCCESS )
         {
             vTaskDelay( SHORT_DELAY_ticks );
@@ -547,6 +555,7 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
             LogWarn( ( "Cellular_ModuleEnableUE: Network scan RAT list skipped due to error" ) );
         }
 
+        // TODO (MV): Implement read before write
         if( cellularStatus == CELLULAR_SUCCESS )
         {
             vTaskDelay( SHORT_DELAY_ticks );
@@ -570,6 +579,7 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
             LogWarn( ( "Cellular_ModuleEnableUE: Skipped Set RF off / SIM enabled due to error" ) );
         }
 
+        // TODO (MV): Implement read before write
         if( cellularStatus == CELLULAR_SUCCESS )
         {
             vTaskDelay( SHORT_DELAY_ticks );
