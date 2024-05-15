@@ -492,6 +492,35 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
         }
 #endif
 
+//#define CELLULAR_QUECTEL_ENABLE_USB
+//#define CELLULAR_QUECTEL_DISABLE_USB
+#if defined(CELLULAR_QUECTEL_ENABLE_USB) || defined(CELLULAR_QUECTEL_DISABLE_USB)
+        if( cellularStatus == CELLULAR_SUCCESS )
+        {
+            vTaskDelay( SHORT_DELAY_ticks );
+
+            /* Setting debug output enable. */
+#ifdef CELLULAR_QUECTEL_ENABLE_USB
+            atReqGetNoResult.pAtCmd = "AT+QCFG=\"usb\",1";
+#else
+            atReqGetNoResult.pAtCmd = "AT+QCFG=\"usb\",0";
+#endif
+            CellularError_t debugResult = sendAtCommandWithRetryTimeout( pContext, &atReqGetNoResult );
+            if( debugResult == CELLULAR_SUCCESS )
+            {
+                LogInfo( ( "Cellular_ModuleEnableUE: '%s' command success.", atReqGetNoResult.pAtCmd ) );
+            }
+            else
+            {
+                LogWarn( ( "Cellular_ModuleEnableUE: '%s' command failed.", atReqGetNoResult.pAtCmd ) );
+            }
+        }
+        else
+        {
+            LogWarn( ( "Cellular_ModuleEnableUE: USB enable skipped due to error" ) );
+        }
+#endif
+
         // TODO (MV): Implement read before write
         if( cellularStatus == CELLULAR_SUCCESS )
         {
