@@ -60,7 +60,7 @@ typedef struct BG770FrequencyBands
     char nbIotBands_hexString[BG770_NB_IOT_BAND_HEX_STRING_MAX_LENGTH + 1];
 } BG770FrequencyBands_t;
 
-typedef enum BG77URCIndicationOption
+typedef enum BG77URCIndicationOptionType
 {
     BG770_URC_INDICATION_OPTION_MAIN = 0,  /**< URC output on main UART. */
     BG770_URC_INDICATION_OPTION_AUX,       /**< URC output on aux UART. */
@@ -68,9 +68,27 @@ typedef enum BG77URCIndicationOption
     BG770_URC_INDICATION_OPTION_UNKNOWN    /**< Unknown URC output. */
 } BG770URCIndicationOptionType_t;
 
-static const char * URCCFG_URCPORT_MAIN = "\"main\"";
-static const char * URCCFG_URCPORT_AUX = "\"aux\"";
-static const char * URCCFG_URCPORT_EMUX = "\"emux\"";
+static const char *const URCCFG_URCPORT_MAIN = "\"main\"";
+static const char *const URCCFG_URCPORT_AUX = "\"aux\"";
+static const char *const URCCFG_URCPORT_EMUX = "\"emux\"";
+
+typedef enum BG770FlowControlType
+{
+    BG770_FLOW_CONTROL_TYPE_NONE = 0,       /**< No flow control. */
+    BG770_FLOW_CONTROL_TYPE_HARDWARE = 2,   /**< RTS (DCE by DTE) or CTS (DTE by DCE). */
+    BG770_FLOW_CONTROL_TYPE_UNKNOWN,        /**< Unknown/unsupported flow control type. */
+} BG770FlowControlType_t;
+
+static const char *const NO_FLOW_CONTROL_STRING = "0";
+static const char *const HARDWARE_FLOW_CONTROL_STRING = "2";
+
+typedef struct BG770FlowControlState
+{
+    /**< NOTE: Data terminal equipment (DTE) is microcontroller. */
+    /**< NOTE: Data communications equipment (DCE) is Quectel BG770A cellular modem. */
+    BG770FlowControlType_t dceByDTE;        /**< RTS if hardware flow control. */
+    BG770FlowControlType_t dteByDCE;        /**< CTS if hardware flow control. */
+} BG770FlowControlState_t;
 
 static const TickType_t APP_READY_MAX_WAIT_PERIOD_ticks = pdMS_TO_TICKS( 10000U );
 static const TickType_t POST_APP_READY_WAIT_PERIOD_ticks = pdMS_TO_TICKS( 5000U );
@@ -91,9 +109,18 @@ static CellularError_t _GetURCIndicationOption( CellularHandle_t cellularHandle,
 static CellularError_t _SetURCIndicationOption( CellularHandle_t cellularHandle,
                                                 BG770URCIndicationOptionType_t urcIndicationOptionType );
 
+static CellularError_t _GetFlowControlState( CellularHandle_t cellularHandle,
+                                             BG770FlowControlState_t * pFlowControlState );
+
+static CellularError_t _SetFlowControlState( CellularHandle_t cellularHandle,
+                                             BG770FlowControlState_t flowControlState );
+
 /*-----------------------------------------------------------*/
 
 static cellularModuleContext_t cellularBg770Context = { 0 };
+
+static bool configSkipPostHWFlowControlSetupIfChanged = false;
+static CellularModuleFullInitSkippedResult_t fullInitSkippedResult = CELLULAR_FULL_INIT_SKIPPED_RESULT_ERROR;
 
 /* FreeRTOS Cellular Common Library porting interface. */
 /* coverity[misra_c_2012_rule_8_7_violation] */
@@ -411,24 +438,54 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
             }
         }
 
-        #ifndef CELLULAR_CONFIG_DISABLE_FLOW_CONTROL
-            if( cellularStatus == CELLULAR_SUCCESS )
-            {
-                vTaskDelay( SHORT_DELAY_ticks );
+#ifndef CELLULAR_CONFIG_DISABLE_FLOW_CONTROL
+        if( cellularStatus == CELLULAR_SUCCESS )
+        {
+            vTaskDelay( SHORT_DELAY_ticks );
 
-                /* Enable RTS/CTS hardware flow control - command is not saved to user profile, don't need to perform read before write. . */
-                atReqGetNoResult.pAtCmd = "AT+IFC=2,2";
-                cellularStatus = sendAtCommandWithRetryTimeout( pContext, &atReqGetNoResult );
+            static const BG770FlowControlState_t desiredFlowControlState =
+            {
+                .dceByDTE = BG770_FLOW_CONTROL_TYPE_HARDWARE,
+                .dteByDCE = BG770_FLOW_CONTROL_TYPE_HARDWARE
+            };
+            BG770FlowControlState_t flowControlState =
+            {
+                .dceByDTE = BG770_FLOW_CONTROL_TYPE_UNKNOWN,
+                .dteByDCE = BG770_FLOW_CONTROL_TYPE_UNKNOWN
+            };
+            cellularStatus = _GetFlowControlState( pContext, &flowControlState);
+            if( cellularStatus != CELLULAR_SUCCESS ||
+                desiredFlowControlState.dceByDTE != flowControlState.dceByDTE ||
+                desiredFlowControlState.dteByDCE != flowControlState.dteByDCE )
+            {
+                if( cellularStatus != CELLULAR_SUCCESS )
+                {
+                    LogError( ( "Cellular_ModuleEnableUE: Could not get hardware flow control state, assuming not already set." ) );
+                }
+
+                cellularStatus = _SetFlowControlState( pContext, desiredFlowControlState );
                 if( cellularStatus == CELLULAR_SUCCESS )
                 {
-                    LogInfo( ( "Cellular_ModuleEnableUE: '%s' command success.", atReqGetNoResult.pAtCmd ) );
+                    LogInfo( ( "Cellular_ModuleEnableUE: Set hardware flow control command success." ) );
+                    if( configSkipPostHWFlowControlSetupIfChanged )
+                    {
+                        LogInfo( ( "Cellular_ModuleEnableUE: Full initialization skipped based on flow control state change." ) );
+                        fullInitSkippedResult = CELLULAR_FULL_INIT_SKIPPED_RESULT_YES;
+                        return cellularStatus;
+                    }
                 }
                 else
                 {
-                    LogError( ( "Cellular_ModuleEnableUE: '%s' command failed.", atReqGetNoResult.pAtCmd ) );
+                    LogError( ( "Cellular_ModuleEnableUE: Set hardware flow control command failure." ) );
                 }
             }
-        #endif
+            else
+            {
+                LogInfo( ( "Cellular_ModuleEnableUE: Set hardware flow control command skipped, already set." ) );
+                fullInitSkippedResult = CELLULAR_FULL_INIT_SKIPPED_RESULT_NO;
+            }
+        }
+#endif
 
         if( cellularStatus == CELLULAR_SUCCESS )
         {
@@ -488,7 +545,7 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
         }
         else
         {
-            LogWarn( ( "Cellular_ModuleEnableUE: Debug output enable skipped due to error" ) );
+            LogWarn( ( "Cellular_ModuleEnableUE: Debug output enable skipped due to error." ) );
         }
 #endif
 
@@ -517,7 +574,7 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
         }
         else
         {
-            LogWarn( ( "Cellular_ModuleEnableUE: USB enable skipped due to error" ) );
+            LogWarn( ( "Cellular_ModuleEnableUE: USB enable skipped due to error." ) );
         }
 #endif
 
@@ -543,7 +600,7 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
         }
         else
         {
-            LogWarn( ( "Cellular_ModuleEnableUE: eMTC (LTE-M) only network category skipped due to error" ) );
+            LogWarn( ( "Cellular_ModuleEnableUE: eMTC (LTE-M) only network category skipped due to error." ) );
         }
 
         // TODO (MV): Implement read before write
@@ -581,7 +638,7 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
         }
         else
         {
-            LogWarn( ( "Cellular_ModuleEnableUE: Network scan RAT list skipped due to error" ) );
+            LogWarn( ( "Cellular_ModuleEnableUE: Network scan RAT list skipped due to error." ) );
         }
 
         // TODO (MV): Implement read before write
@@ -605,7 +662,7 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
         }
         else
         {
-            LogWarn( ( "Cellular_ModuleEnableUE: Skipped Set RF off / SIM enabled due to error" ) );
+            LogWarn( ( "Cellular_ModuleEnableUE: Skipped Set RF off / SIM enabled due to error." ) );
         }
 
         // TODO (MV): Implement read before write
@@ -644,7 +701,7 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
         }
         else
         {
-            LogWarn( ( "Cellular_ModuleEnableUE: Disable LwM2M skipped due to error" ) );
+            LogWarn( ( "Cellular_ModuleEnableUE: Disable LwM2M skipped due to error." ) );
         }
     }
 
@@ -667,6 +724,12 @@ CellularError_t Cellular_ModuleEnableUrc( CellularContext_t * pContext )
         NULL,
         0
     };
+
+    if( configSkipPostHWFlowControlSetupIfChanged && fullInitSkippedResult == CELLULAR_FULL_INIT_SKIPPED_RESULT_YES )
+    {
+        LogInfo( ( "Cellular_ModuleEnableUrc: Commands skipped, re-init required for flow control change." ) );
+        return cellularStatus;
+    }
 
     /* Set numeric operator format. */
     atReqGetNoResult.pAtCmd = "AT+COPS=3,2";
@@ -1071,3 +1134,253 @@ static CellularError_t _SetURCIndicationOption( CellularHandle_t cellularHandle,
     return cellularStatus;
 }
 
+/*-----------------------------------------------------------*/
+
+CellularError_t CellularModule_SkipInitializationPostHWFlowControlSetupIfChanged(
+        const bool skipPostHWFlowControlSetupIfChanged )
+{
+    configSkipPostHWFlowControlSetupIfChanged = skipPostHWFlowControlSetupIfChanged;
+    fullInitSkippedResult = CELLULAR_FULL_INIT_SKIPPED_RESULT_ERROR;    /**< Assume error until explicit yes/no. */
+    return CELLULAR_SUCCESS;
+}
+
+/*-----------------------------------------------------------*/
+
+CellularError_t CellularModule_TryGetDidSkipInitializationPostHWFlowControlSetup(
+        CellularModuleFullInitSkippedResult_t *const pSkippedResult)
+{
+    if( pSkippedResult == NULL )
+    {
+        return CELLULAR_BAD_PARAMETER;
+    }
+
+    *pSkippedResult = fullInitSkippedResult;
+    return CELLULAR_SUCCESS;
+}
+
+/*-----------------------------------------------------------*/
+
+/**< NOTE: pFlowControlTypeString is expected to contain no whitespace. */
+static BG770FlowControlType_t _getFlowControlType( const char * pFlowControlTypeString )
+{
+    if( strcmp( pFlowControlTypeString, NO_FLOW_CONTROL_STRING ) == 0 )
+    {
+        return BG770_FLOW_CONTROL_TYPE_NONE;
+    }
+    else if ( strcmp( pFlowControlTypeString, HARDWARE_FLOW_CONTROL_STRING ) == 0 )
+    {
+        return BG770_FLOW_CONTROL_TYPE_HARDWARE;
+    }
+    else
+    {
+        return BG770_FLOW_CONTROL_TYPE_UNKNOWN;
+    }
+}
+
+static const char * _getFlowControlTypeString( const BG770FlowControlType_t flowControlType )
+{
+    switch( flowControlType )
+    {
+        case BG770_FLOW_CONTROL_TYPE_NONE:
+            return NO_FLOW_CONTROL_STRING;
+
+        case BG770_FLOW_CONTROL_TYPE_HARDWARE:
+            return HARDWARE_FLOW_CONTROL_STRING;
+
+        default:
+            LogError( ( "_getFlowControlTypeString: Invalid BG770FlowControlType_t: %d", flowControlType ) );
+            /**< Intentional fall-through */
+        case BG770_FLOW_CONTROL_TYPE_UNKNOWN:
+            return "unknown";
+    }
+}
+
+static bool _parseFlowControlState( char * pQflowControlStatePayload,
+                                    BG770FlowControlState_t *const pFlowControlState )
+{
+    char * pToken = NULL, * pTmpQflowControlStatePayload = pQflowControlStatePayload;
+    bool parseStatus = true;
+
+    if( ( pFlowControlState == NULL ) || ( pQflowControlStatePayload == NULL ) )
+    {
+        LogError( ( "_parseFlowControlType: Invalid Input Parameters" ) );
+        parseStatus = false;
+    }
+
+    if( parseStatus == true )
+    {
+        if( Cellular_ATGetNextTok( &pTmpQflowControlStatePayload, &pToken ) == CELLULAR_AT_SUCCESS )
+        {
+            pFlowControlState->dceByDTE = _getFlowControlType( pToken );
+            if( pFlowControlState->dceByDTE == BG770_FLOW_CONTROL_TYPE_UNKNOWN ) {
+                LogError( ( "_parseFlowControlType: DCE-by-DTE flow control type invalid, '%s'", pToken ) );
+                parseStatus = false;
+            }
+        }
+        else
+        {
+            LogError( ( "_parseFlowControlType: DCE-by-DTE flow control type string not present" ) );
+            pFlowControlState->dceByDTE = BG770_FLOW_CONTROL_TYPE_UNKNOWN;
+            pFlowControlState->dteByDCE = BG770_FLOW_CONTROL_TYPE_UNKNOWN;
+            parseStatus = false;
+        }
+    }
+
+    if( parseStatus == true )
+    {
+        if( Cellular_ATGetNextTok( &pTmpQflowControlStatePayload, &pToken ) == CELLULAR_AT_SUCCESS )
+        {
+            pFlowControlState->dteByDCE = _getFlowControlType( pToken );
+            if( pFlowControlState->dteByDCE == BG770_FLOW_CONTROL_TYPE_UNKNOWN ) {
+                LogError( ( "_parseFlowControlType: DTE-by-DCE flow control type invalid, '%s'", pToken ) );
+                parseStatus = false;
+            }
+        }
+        else
+        {
+            LogError( ( "_parseFlowControlType: DTE-by-DCE flow control type string not present" ) );
+            pFlowControlState->dteByDCE = BG770_FLOW_CONTROL_TYPE_UNKNOWN;
+            parseStatus = false;
+        }
+    }
+
+    return parseStatus;
+}
+
+/* FreeRTOS Cellular Library types. */
+/* coverity[misra_c_2012_rule_8_13_violation] */
+static CellularPktStatus_t _RecvFuncGetFlowControlState( CellularContext_t * pContext,
+                                                         const CellularATCommandResponse_t * pAtResp,
+                                                         void * pData,
+                                                         uint16_t dataLen )
+{
+    char * pInputLine = NULL;
+    BG770FlowControlState_t * pFlowControlState = ( BG770FlowControlState_t * ) pData;
+    bool parseStatus = true;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    CellularATError_t atCoreStatus = CELLULAR_AT_SUCCESS;
+
+    if( pContext == NULL )
+    {
+        pktStatus = CELLULAR_PKT_STATUS_INVALID_HANDLE;
+    }
+    else if( ( pFlowControlState == NULL ) || ( dataLen != sizeof( BG770FlowControlState_t ) ) )
+    {
+        pktStatus = CELLULAR_PKT_STATUS_BAD_PARAM;
+    }
+    else if( ( pAtResp == NULL ) || ( pAtResp->pItm == NULL ) || ( pAtResp->pItm->pLine == NULL ) )
+    {
+        LogError( ( "_GetFlowControlState: Input Line passed is NULL" ) );
+        pktStatus = CELLULAR_PKT_STATUS_FAILURE;
+    }
+    else
+    {
+        pInputLine = pAtResp->pItm->pLine;
+        atCoreStatus = Cellular_ATRemovePrefix( &pInputLine );
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATRemoveAllWhiteSpaces( pInputLine );
+        }
+
+        if( atCoreStatus != CELLULAR_AT_SUCCESS )
+        {
+            pktStatus = _Cellular_TranslateAtCoreStatus( atCoreStatus );
+        }
+    }
+
+    if( pktStatus == CELLULAR_PKT_STATUS_OK )
+    {
+        parseStatus = _parseFlowControlState( pInputLine, pFlowControlState );
+
+        if( parseStatus != true )
+        {
+            pFlowControlState->dceByDTE = BG770_FLOW_CONTROL_TYPE_UNKNOWN;
+            pFlowControlState->dteByDCE = BG770_FLOW_CONTROL_TYPE_UNKNOWN;
+            pktStatus = CELLULAR_PKT_STATUS_FAILURE;
+        }
+    }
+
+    return pktStatus;
+}
+
+static CellularError_t _GetFlowControlState( CellularHandle_t cellularHandle,
+                                             BG770FlowControlState_t *const pFlowControlState )
+{
+    CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    CellularAtReq_t atReqGetFlowControlState =
+    {
+        "AT+IFC?",
+        CELLULAR_AT_WITH_PREFIX,
+        "+IFC",
+        _RecvFuncGetFlowControlState,
+        pFlowControlState,
+        sizeof( BG770FlowControlState_t ),
+    };
+
+    if( pFlowControlState == NULL )
+    {
+        cellularStatus = CELLULAR_BAD_PARAMETER;
+    }
+    else
+    {
+        pktStatus = _Cellular_AtcmdRequestWithCallback( pContext, atReqGetFlowControlState );
+
+        if( pktStatus != CELLULAR_PKT_STATUS_OK )
+        {
+            LogError( ( "_GetFlowControlState: couldn't retrieve flow control state" ) );
+            cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
+        }
+    }
+
+    return cellularStatus;
+}
+
+/*-----------------------------------------------------------*/
+
+static CellularError_t _SetFlowControlState( CellularHandle_t cellularHandle,
+                                             BG770FlowControlState_t flowControlState )
+{
+    CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    char cmdBuf[ CELLULAR_AT_CMD_MAX_SIZE ] = { '\0' };
+    CellularAtReq_t atReqSetFlowControlState =
+    {
+        cmdBuf,
+        CELLULAR_AT_NO_RESULT,
+        NULL,
+        NULL,
+        NULL,
+        0,
+    };
+
+    if( ( flowControlState.dceByDTE != BG770_FLOW_CONTROL_TYPE_NONE &&
+          flowControlState.dceByDTE != BG770_FLOW_CONTROL_TYPE_HARDWARE ) ||
+        ( flowControlState.dteByDCE != BG770_FLOW_CONTROL_TYPE_NONE &&
+          flowControlState.dteByDCE != BG770_FLOW_CONTROL_TYPE_HARDWARE ) )
+    {
+        cellularStatus = CELLULAR_BAD_PARAMETER;
+    }
+    else
+    {
+        /* MISRA Ref 21.6.1 [Use of snprintf] */
+        /* More details at: https://github.com/FreeRTOS/FreeRTOS-Cellular-Interface/blob/main/MISRA.md#rule-216 */
+        /* coverity[misra_c_2012_rule_21_6_violation]. */
+        ( void ) snprintf( cmdBuf, sizeof ( cmdBuf ), "AT+IFC=%s,%s",
+                           _getFlowControlTypeString( flowControlState.dceByDTE ),
+                           _getFlowControlTypeString( flowControlState.dteByDCE ) );
+
+        pktStatus = _Cellular_AtcmdRequestWithCallback( pContext, atReqSetFlowControlState );
+
+        if( pktStatus != CELLULAR_PKT_STATUS_OK )
+        {
+            LogError( ( "_SetFlowControlState: couldn't set flow control state" ) );
+            cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
+        }
+    }
+
+    return cellularStatus;
+}
