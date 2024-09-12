@@ -41,7 +41,8 @@
 /*-----------------------------------------------------------*/
 
 #define ENABLE_MODULE_UE_RETRY_COUNT       ( 4U )
-#define ENABLE_MODULE_UE_RETRY_TIMEOUT     ( 18000U )   /* observed at least 17113 ms */
+#define ENABLE_MODULE_UE_RETRY_TIMEOUT_MS   ( 18000U )   /* observed at least 17113 ms */
+#define ENABLE_MODULE_UE_RETRY_EXP_BACKOFF_INTER_COMMAND_BASE_MS    ( 1000UL )
 #define BG770_NWSCANSEQ_CMD_MAX_SIZE       ( 30U ) /* Need at least the length of AT+QCFG="nwscanseq",020301,1\0. */
 
 #define BG770_MAX_SUPPORTED_LTE_BAND       ( 66U )
@@ -54,13 +55,15 @@
 #define BG770_LTE_BAND_HEX_STRING_MAX_LENGTH    ( GET_HEX_STRING_COUNT( BG770_MAX_SUPPORTED_LTE_BAND ) + 2 )
 #define BG770_NB_IOT_BAND_HEX_STRING_MAX_LENGTH ( GET_HEX_STRING_COUNT( BG770_MAX_SUPPORTED_NB_IOT_BAND ) + 2 )
 
+typedef CellularError_t (*FuncRetryableSet_t)( CellularHandle_t cellularHandle, uint32_t commandTimeoutMS );
+
 typedef struct BG770FrequencyBands
 {
     char lteBands_hexString[BG770_LTE_BAND_HEX_STRING_MAX_LENGTH + 1];
     char nbIotBands_hexString[BG770_NB_IOT_BAND_HEX_STRING_MAX_LENGTH + 1];
 } BG770FrequencyBands_t;
 
-typedef enum BG77URCIndicationOptionType
+typedef enum BG770URCIndicationOptionType
 {
     BG770_URC_INDICATION_OPTION_MAIN = 0,  /**< URC output on main UART. */
     BG770_URC_INDICATION_OPTION_AUX,       /**< URC output on aux UART. */
@@ -90,6 +93,36 @@ typedef struct BG770FlowControlState
     BG770FlowControlType_t dteByDCE;        /**< CTS if hardware flow control. */
 } BG770FlowControlState_t;
 
+typedef enum BG770UEFunctionalityLevel
+{
+    BG770_UE_FUNCTIONALITY_LEVEL_MINIMUM = 0,     /**< RF front-end and SIM card disabled */
+    BG770_UE_FUNCTIONALITY_LEVEL_FULL = 1,        /**< RF front-end and SIM card enabled */
+    BG770_UE_FUNCTIONALITY_LEVEL_SIM_ONLY = 4,    /**< RF front-end disabled and SIM card enabled */
+    BG770_UE_FUNCTIONALITY_LEVEL_UNKNOWN,         /**< Unknown/unsupported functionality type. */
+} BG770UEFunctionalityLevel_t;
+
+static const char *const UE_FUNC_LEVEL_MINIMUM_STRING = "0";
+static const char *const UE_FUNC_LEVEL_FULL_STRING = "1";
+static const char *const UE_FUNC_LEVEL_SIM_ONLY_STRING = "4";
+
+/* SIM enabled, RF off. Need to set additional settings before modem tries to connect. */
+static const BG770UEFunctionalityLevel_t DESIRED_UE_ENABLE_FUNCTIONALITY_LEVEL = BG770_UE_FUNCTIONALITY_LEVEL_SIM_ONLY;
+
+typedef enum BG770NetworkCategorySearchMode
+{
+    BG770_NETWORK_CATEGORY_SEARCH_MODE_eMTC = 0,            /**< eMTC/LTE-M. */
+    BG770_NETWORK_CATEGORY_SEARCH_MODE_NB_IoT = 1,          /**< NB-Iot. */
+    BG770_NETWORK_CATEGORY_SEARCH_MODE_eMTC_AND_NB_IoT = 2, /**< eMTC/LTE-M and NB-IoT. */
+    BG770_NETWORK_CATEGORY_SEARCH_MODE_UNKNOWN              /**< Unknown network category search mode. */
+} BG770NetworkCategorySearchMode_t;
+
+static const char *const NET_CAT_SEARCH_MODE_eMTC_STRING = "0";
+static const char *const NET_CAT_SEARCH_MODE_NB_IoT_STRING = "1";
+static const char *const NET_CAT_SEARCH_MODE_eMTC_AND_NB_IoT_STRING = "2";
+
+/* Configure Network Category to be Searched under LTE RAT to eMTC only. */
+static const BG770NetworkCategorySearchMode_t DESIRED_NETWORK_CATEGORY_SEARCH_MODE = BG770_NETWORK_CATEGORY_SEARCH_MODE_eMTC;
+
 static const TickType_t APP_READY_MAX_WAIT_PERIOD_ticks = pdMS_TO_TICKS( 10000U );
 static const TickType_t POST_APP_READY_WAIT_PERIOD_ticks = pdMS_TO_TICKS( 5000U );
 
@@ -110,10 +143,47 @@ static CellularError_t _SetURCIndicationOption( CellularHandle_t cellularHandle,
                                                 BG770URCIndicationOptionType_t urcIndicationOptionType );
 
 static CellularError_t _GetFlowControlState( CellularHandle_t cellularHandle,
-                                             BG770FlowControlState_t * pFlowControlState );
+                                             BG770FlowControlState_t * pFlowControlState,
+                                             uint32_t commandTimeoutMS );
+
+static CellularError_t _GetFlowControlStateWithRetryTimeout( CellularHandle_t cellularHandle,
+                                                             BG770FlowControlState_t * pFlowControlState,
+                                                             uint32_t commandTimeoutMS,
+                                                             uint32_t exponentialBackoffInterCommandBaseMS );
 
 static CellularError_t _SetFlowControlState( CellularHandle_t cellularHandle,
                                              BG770FlowControlState_t flowControlState );
+
+static CellularError_t _GetUEFunctionalityLevel( CellularHandle_t cellularHandle,
+                                                 BG770UEFunctionalityLevel_t * pUEFunctionalityLevel,
+                                                 uint32_t commandTimeoutMS );
+
+static CellularError_t _GetUEFunctionalityLevelWithRetryTimeout( CellularHandle_t cellularHandle,
+                                                                 BG770UEFunctionalityLevel_t * pUEFunctionalityLevel,
+                                                                 uint32_t commandTimeoutMS,
+                                                                 uint32_t exponentialBackoffInterCommandBaseMS );
+
+static CellularError_t _SetUEFunctionalityLevel( CellularHandle_t cellularHandle,
+                                                 BG770UEFunctionalityLevel_t ueFunctionalityLevel,
+                                                 uint32_t commandTimeoutMS );
+
+static CellularError_t _SetDesiredUEFunctionalityLevel( CellularHandle_t cellularHandle, uint32_t commandTimeoutMS );
+
+static CellularError_t _GetNetworkCategorySearchMode( CellularHandle_t cellularHandle,
+                                                      BG770NetworkCategorySearchMode_t * pNetworkCategorySearchMode,
+                                                      uint32_t commandTimeoutMS );
+
+static CellularError_t _GetNetworkCategorySearchModeWithRetryTimeout( CellularHandle_t cellularHandle,
+                                                                      BG770NetworkCategorySearchMode_t * pNetworkCategorySearchMode,
+                                                                      uint32_t commandTimeoutMS,
+                                                                      uint32_t exponentialBackoffInterCommandBaseMS );
+
+static CellularError_t _SetNetworkCategorySearchMode( CellularHandle_t cellularHandle,
+                                                      BG770NetworkCategorySearchMode_t networkCategorySearchMode,
+                                                      bool applyImmediately,
+                                                      uint32_t commandTimeoutMS );
+
+static CellularError_t _SetDesiredNetworkCategorySearchMode( CellularHandle_t cellularHandle, uint32_t commandTimeoutMS );
 
 /*-----------------------------------------------------------*/
 
@@ -186,7 +256,41 @@ static CellularError_t sendAtCommandWithRetryTimeoutParams( CellularContext_t * 
 static CellularError_t sendAtCommandWithRetryTimeout( CellularContext_t * pContext,
                                                       const CellularAtReq_t * pAtReq )
 {
-    return sendAtCommandWithRetryTimeoutParams( pContext, pAtReq, ENABLE_MODULE_UE_RETRY_TIMEOUT, 1000UL );
+    return sendAtCommandWithRetryTimeoutParams( pContext, pAtReq, ENABLE_MODULE_UE_RETRY_TIMEOUT_MS,
+                                                ENABLE_MODULE_UE_RETRY_EXP_BACKOFF_INTER_COMMAND_BASE_MS );
+}
+
+static CellularError_t setRetryableSettingWithTimeoutParams( FuncRetryableSet_t retryableSetFunction,
+                                                             CellularHandle_t cellularHandle,
+                                                             uint32_t commandTimeoutMS,
+                                                             uint32_t exponentialBackoffInterCommandBaseMS )
+{
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+    uint8_t tryCount = 0;
+
+    if( cellularHandle == NULL || retryableSetFunction == NULL )
+    {
+        cellularStatus = CELLULAR_BAD_PARAMETER;
+    }
+    else
+    {
+        for( ; tryCount < ENABLE_MODULE_UE_RETRY_COUNT; tryCount++ )
+        {
+            if (tryCount > 0) {
+                // increasing backoff
+                vTaskDelay( pdMS_TO_TICKS( exponentialBackoffInterCommandBaseMS * (uint32_t)tryCount * tryCount ) );
+            }
+
+            cellularStatus = ( * retryableSetFunction )( cellularHandle, commandTimeoutMS );
+
+            if( cellularStatus == CELLULAR_SUCCESS )
+            {
+                break;
+            }
+        }
+    }
+
+    return cellularStatus;
 }
 
 /*-----------------------------------------------------------*/
@@ -453,7 +557,9 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
                 .dceByDTE = BG770_FLOW_CONTROL_TYPE_UNKNOWN,
                 .dteByDCE = BG770_FLOW_CONTROL_TYPE_UNKNOWN
             };
-            cellularStatus = _GetFlowControlState( pContext, &flowControlState);
+            cellularStatus = _GetFlowControlStateWithRetryTimeout(
+                    pContext, &flowControlState, ENABLE_MODULE_UE_RETRY_TIMEOUT_MS,
+                    ENABLE_MODULE_UE_RETRY_EXP_BACKOFF_INTER_COMMAND_BASE_MS );
             if( cellularStatus != CELLULAR_SUCCESS ||
                 desiredFlowControlState.dceByDTE != flowControlState.dceByDTE ||
                 desiredFlowControlState.dteByDCE != flowControlState.dteByDCE )
@@ -463,6 +569,7 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
                     LogError( ( "Cellular_ModuleEnableUE: Could not get hardware flow control state, assuming not already set." ) );
                 }
 
+                /**< No retry, even if miss 'OK' the flow control may have changed */
                 cellularStatus = _SetFlowControlState( pContext, desiredFlowControlState );
                 if( cellularStatus == CELLULAR_SUCCESS )
                 {
@@ -484,6 +591,10 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
                 LogInfo( ( "Cellular_ModuleEnableUE: Set hardware flow control command skipped, already set." ) );
                 fullInitSkippedResult = CELLULAR_FULL_INIT_SKIPPED_RESULT_NO;
             }
+        }
+        else
+        {
+            LogWarn( ( "Cellular_ModuleEnableUE: hardware flow control skipped due to error." ) );
         }
 #endif
 
@@ -518,6 +629,10 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
             {
                 LogInfo( ( "Cellular_ModuleEnableUE: 'AT+QURCCFG=\"urcport\"' command skipped, already set.", atReqGetNoResult.pAtCmd ) );
             }
+        }
+        else
+        {
+            LogWarn( ( "Cellular_ModuleEnableUE: URC indication port skipped due to error." ) );
         }
 
 //#define CELLULAR_QUECTEL_ENABLE_DEBUG_UART
@@ -578,24 +693,40 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
         }
 #endif
 
-        // TODO (MV): Implement read before write
         if( cellularStatus == CELLULAR_SUCCESS )
         {
             vTaskDelay( SHORT_DELAY_ticks );
 
-            /* Configure Network Category to be Searched under LTE RAT to eMTC only. */
-            /* FUTURE: From Quectel Support, this command "will force rescan bands and take more time to register.
-             *         Actually, it is not necessary to send at each power cycle."; therefore,
-                       should check if already set correctly and only send if changed. */
-            atReqGetNoResult.pAtCmd = "AT+QCFG=\"iotopmode\",0,1";
-            cellularStatus = sendAtCommandWithRetryTimeout( pContext, &atReqGetNoResult );
-            if( cellularStatus == CELLULAR_SUCCESS )
+            BG770NetworkCategorySearchMode_t networkCategorySearchMode = BG770_NETWORK_CATEGORY_SEARCH_MODE_UNKNOWN;
+            cellularStatus = _GetNetworkCategorySearchModeWithRetryTimeout(
+                    pContext, &networkCategorySearchMode, ENABLE_MODULE_UE_RETRY_TIMEOUT_MS,
+                    ENABLE_MODULE_UE_RETRY_EXP_BACKOFF_INTER_COMMAND_BASE_MS );
+            if( cellularStatus != CELLULAR_SUCCESS ||
+                DESIRED_NETWORK_CATEGORY_SEARCH_MODE != networkCategorySearchMode )
             {
-                LogInfo( ( "Cellular_ModuleEnableUE: '%s' command success.", atReqGetNoResult.pAtCmd ) );
+                if( cellularStatus != CELLULAR_SUCCESS )
+                {
+                    LogError( ( "Cellular_ModuleEnableUE: Could not get network category search mode, assuming not already set." ) );
+                }
+
+                /* NOTE: From Quectel Support, this command "will force rescan bands and take more time to register.
+                 *       Actually, it is not necessary to send at each power cycle."; therefore,
+                 *       should check if already set correctly and only send if changed. */
+                cellularStatus = setRetryableSettingWithTimeoutParams(
+                        _SetDesiredNetworkCategorySearchMode, pContext, ENABLE_MODULE_UE_RETRY_TIMEOUT_MS,
+                        ENABLE_MODULE_UE_RETRY_EXP_BACKOFF_INTER_COMMAND_BASE_MS );
+                if( cellularStatus == CELLULAR_SUCCESS )
+                {
+                    LogInfo( ( "Cellular_ModuleEnableUE: Set network category search mode (%d) command success.", DESIRED_NETWORK_CATEGORY_SEARCH_MODE ) );
+                }
+                else
+                {
+                    LogError( ( "Cellular_ModuleEnableUE: Set network category search mode (%d) command failure.", DESIRED_NETWORK_CATEGORY_SEARCH_MODE ) );
+                }
             }
             else
             {
-                LogError( ( "Cellular_ModuleEnableUE: '%s' command failed.", atReqGetNoResult.pAtCmd ) );
+                LogInfo( ( "Cellular_ModuleEnableUE: Set network category search mode (%d) command skipped, already set.", DESIRED_NETWORK_CATEGORY_SEARCH_MODE ) );
             }
         }
         else
@@ -641,23 +772,39 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
             LogWarn( ( "Cellular_ModuleEnableUE: Network scan RAT list skipped due to error." ) );
         }
 
-        // TODO (MV): Implement read before write
         if( cellularStatus == CELLULAR_SUCCESS )
         {
             vTaskDelay( SHORT_DELAY_ticks );
 
-            /* SIM enabled, RF off. Need to set additional settings before modem tries to connect. */
             /* NOTE: Command may fail the first time a new different SIM card is inserted (eg. Soracom -> Verizon or Verizon -> Soracom),
              *       therefore, it is important that Cellular_Init() be tried more than once. */
-            atReqGetNoResult.pAtCmd = "AT+CFUN=4";
-            cellularStatus = sendAtCommandWithRetryTimeout( pContext, &atReqGetNoResult );
-            if( cellularStatus == CELLULAR_SUCCESS )
+            BG770UEFunctionalityLevel_t ueFunctionalityLevel = BG770_UE_FUNCTIONALITY_LEVEL_UNKNOWN;
+            cellularStatus = _GetUEFunctionalityLevelWithRetryTimeout(
+                    pContext, &ueFunctionalityLevel, ENABLE_MODULE_UE_RETRY_TIMEOUT_MS,
+                    ENABLE_MODULE_UE_RETRY_EXP_BACKOFF_INTER_COMMAND_BASE_MS );
+            if( cellularStatus != CELLULAR_SUCCESS ||
+                DESIRED_UE_ENABLE_FUNCTIONALITY_LEVEL != ueFunctionalityLevel )
             {
-                LogInfo( ( "Cellular_ModuleEnableUE: '%s' command success.", atReqGetNoResult.pAtCmd ) );
+                if( cellularStatus != CELLULAR_SUCCESS )
+                {
+                    LogError( ( "Cellular_ModuleEnableUE: Could not get UE functionality level, assuming not already set." ) );
+                }
+
+                cellularStatus = setRetryableSettingWithTimeoutParams(
+                        _SetDesiredUEFunctionalityLevel, pContext, ENABLE_MODULE_UE_RETRY_TIMEOUT_MS,
+                        ENABLE_MODULE_UE_RETRY_EXP_BACKOFF_INTER_COMMAND_BASE_MS );
+                if( cellularStatus == CELLULAR_SUCCESS )
+                {
+                    LogInfo( ( "Cellular_ModuleEnableUE: Set UE functionality level (%d) command success.", DESIRED_UE_ENABLE_FUNCTIONALITY_LEVEL ) );
+                }
+                else
+                {
+                    LogError( ( "Cellular_ModuleEnableUE: Set UE functionality level (%d) command failure.", DESIRED_UE_ENABLE_FUNCTIONALITY_LEVEL ) );
+                }
             }
             else
             {
-                LogError( ( "Cellular_ModuleEnableUE: '%s' command failed.", atReqGetNoResult.pAtCmd ) );
+                LogInfo( ( "Cellular_ModuleEnableUE: Set UE functionality level (%d) command skipped, already set.", DESIRED_UE_ENABLE_FUNCTIONALITY_LEVEL ) );
             }
         }
         else
@@ -665,7 +812,6 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
             LogWarn( ( "Cellular_ModuleEnableUE: Skipped Set RF off / SIM enabled due to error." ) );
         }
 
-        // TODO (MV): Implement read before write
         if( cellularStatus == CELLULAR_SUCCESS )
         {
             vTaskDelay( SHORT_DELAY_ticks );
@@ -993,7 +1139,10 @@ static bool _parseURCIndicationOption( char * pQurccfgUrcportPayload,
     }
     else
     {
-        *pURCIndicationOption = BG770_URC_INDICATION_OPTION_UNKNOWN;
+        if( pURCIndicationOption != NULL )
+        {
+            *pURCIndicationOption = BG770_URC_INDICATION_OPTION_UNKNOWN;
+        }
     }
 
     return parseStatus;
@@ -1304,8 +1453,42 @@ static CellularPktStatus_t _RecvFuncGetFlowControlState( CellularContext_t * pCo
     return pktStatus;
 }
 
+static CellularError_t _GetFlowControlStateWithRetryTimeout( CellularHandle_t cellularHandle,
+                                                             BG770FlowControlState_t *const pFlowControlState,
+                                                             uint32_t commandTimeoutMS,
+                                                             uint32_t exponentialBackoffInterCommandBaseMS )
+{
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+    uint8_t tryCount = 0;
+
+    if( cellularHandle == NULL || pFlowControlState == NULL )
+    {
+        cellularStatus = CELLULAR_BAD_PARAMETER;
+    }
+    else
+    {
+        for( ; tryCount < ENABLE_MODULE_UE_RETRY_COUNT; tryCount++ )
+        {
+            if (tryCount > 0) {
+                // increasing backoff
+                vTaskDelay( pdMS_TO_TICKS( exponentialBackoffInterCommandBaseMS * (uint32_t)tryCount * tryCount ) );
+            }
+
+            cellularStatus = _GetFlowControlState( cellularHandle, pFlowControlState, commandTimeoutMS );
+
+            if( cellularStatus == CELLULAR_SUCCESS )
+            {
+                break;
+            }
+        }
+    }
+
+    return cellularStatus;
+}
+
 static CellularError_t _GetFlowControlState( CellularHandle_t cellularHandle,
-                                             BG770FlowControlState_t *const pFlowControlState )
+                                             BG770FlowControlState_t *const pFlowControlState,
+                                             uint32_t commandTimeoutMS )
 {
     CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
@@ -1326,7 +1509,7 @@ static CellularError_t _GetFlowControlState( CellularHandle_t cellularHandle,
     }
     else
     {
-        pktStatus = _Cellular_AtcmdRequestWithCallback( pContext, atReqGetFlowControlState );
+        pktStatus = _Cellular_TimeoutAtcmdRequestWithCallback( pContext, atReqGetFlowControlState, commandTimeoutMS );
 
         if( pktStatus != CELLULAR_PKT_STATUS_OK )
         {
@@ -1378,6 +1561,531 @@ static CellularError_t _SetFlowControlState( CellularHandle_t cellularHandle,
         if( pktStatus != CELLULAR_PKT_STATUS_OK )
         {
             LogError( ( "_SetFlowControlState: couldn't set flow control state" ) );
+            cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
+        }
+    }
+
+    return cellularStatus;
+}
+
+/*-----------------------------------------------------------*/
+
+/**< NOTE: pFunctionalityLevelString is expected to contain no whitespace. */
+static BG770UEFunctionalityLevel_t _getUEFunctionalityLevel( const char * pFunctionalityLevelString )
+{
+    if( strcmp( pFunctionalityLevelString, UE_FUNC_LEVEL_MINIMUM_STRING ) == 0 )
+    {
+        return BG770_UE_FUNCTIONALITY_LEVEL_MINIMUM;
+    }
+    else if ( strcmp( pFunctionalityLevelString, UE_FUNC_LEVEL_FULL_STRING ) == 0 )
+    {
+        return BG770_UE_FUNCTIONALITY_LEVEL_FULL;
+    }
+    else if ( strcmp( pFunctionalityLevelString, UE_FUNC_LEVEL_SIM_ONLY_STRING ) == 0 )
+    {
+        return BG770_UE_FUNCTIONALITY_LEVEL_SIM_ONLY;
+    }
+    else
+    {
+        return BG770_UE_FUNCTIONALITY_LEVEL_UNKNOWN;
+    }
+}
+
+static const char * _getUEFunctionalityLevelString( const BG770UEFunctionalityLevel_t ueFunctionalityLevel )
+{
+    switch( ueFunctionalityLevel )
+    {
+        case BG770_UE_FUNCTIONALITY_LEVEL_MINIMUM:
+            return UE_FUNC_LEVEL_MINIMUM_STRING;
+
+        case BG770_UE_FUNCTIONALITY_LEVEL_FULL:
+            return UE_FUNC_LEVEL_FULL_STRING;
+
+        case BG770_UE_FUNCTIONALITY_LEVEL_SIM_ONLY:
+            return UE_FUNC_LEVEL_SIM_ONLY_STRING;
+
+        default:
+            LogError( ( "_getUEFunctionalityLevelString: Invalid BG770UEFunctionalityLevel_t: %d", ueFunctionalityLevel ) );
+            /**< Intentional fall-through */
+        case BG770_UE_FUNCTIONALITY_LEVEL_UNKNOWN:
+            return "unknown";
+    }
+}
+
+static bool _parseUEFunctionalityLevel( char * pQUEFunctionalityLevelPayload,
+                                        BG770UEFunctionalityLevel_t *const pUEFunctionalityLevel )
+{
+    char * pToken = NULL, * pTmpQUEFunctionalityLevelPayload = pQUEFunctionalityLevelPayload;
+    bool parseStatus = true;
+
+    if( ( pUEFunctionalityLevel == NULL ) || ( pQUEFunctionalityLevelPayload == NULL ) )
+    {
+        LogError( ( "_parseUEFunctionalityLevel: Invalid Input Parameters" ) );
+        parseStatus = false;
+    }
+
+    if( parseStatus == true )
+    {
+        if( Cellular_ATGetNextTok( &pTmpQUEFunctionalityLevelPayload, &pToken ) == CELLULAR_AT_SUCCESS )
+        {
+            *pUEFunctionalityLevel = _getUEFunctionalityLevel( pToken );
+            if( *pUEFunctionalityLevel == BG770_UE_FUNCTIONALITY_LEVEL_UNKNOWN ) {
+                LogError( ( "_parseUEFunctionalityLevel: UE functionality level invalid, '%s'", pToken ) );
+                parseStatus = false;
+            }
+        }
+        else
+        {
+            LogError( ( "_parseUEFunctionalityLevel: UE functionality level string not present" ) );
+            *pUEFunctionalityLevel = BG770_UE_FUNCTIONALITY_LEVEL_UNKNOWN;
+            parseStatus = false;
+        }
+    }
+
+    return parseStatus;
+}
+
+/* FreeRTOS Cellular Library types. */
+/* coverity[misra_c_2012_rule_8_13_violation] */
+static CellularPktStatus_t _RecvFuncGetUEFunctionalityLevel( CellularContext_t * pContext,
+                                                             const CellularATCommandResponse_t * pAtResp,
+                                                             void * pData,
+                                                             uint16_t dataLen )
+{
+    char * pInputLine = NULL;
+    BG770UEFunctionalityLevel_t * pUEFunctionalityLevel = ( BG770UEFunctionalityLevel_t * ) pData;
+    bool parseStatus = true;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    CellularATError_t atCoreStatus = CELLULAR_AT_SUCCESS;
+
+    if( pContext == NULL )
+    {
+        pktStatus = CELLULAR_PKT_STATUS_INVALID_HANDLE;
+    }
+    else if( ( pUEFunctionalityLevel == NULL ) || ( dataLen != sizeof( BG770UEFunctionalityLevel_t ) ) )
+    {
+        pktStatus = CELLULAR_PKT_STATUS_BAD_PARAM;
+    }
+    else if( ( pAtResp == NULL ) || ( pAtResp->pItm == NULL ) || ( pAtResp->pItm->pLine == NULL ) )
+    {
+        LogError( ( "_GetUEFunctionalityLevel: Input Line passed is NULL" ) );
+        pktStatus = CELLULAR_PKT_STATUS_FAILURE;
+    }
+    else
+    {
+        pInputLine = pAtResp->pItm->pLine;
+        atCoreStatus = Cellular_ATRemovePrefix( &pInputLine );
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATRemoveAllWhiteSpaces( pInputLine );
+        }
+
+        if( atCoreStatus != CELLULAR_AT_SUCCESS )
+        {
+            pktStatus = _Cellular_TranslateAtCoreStatus( atCoreStatus );
+        }
+    }
+
+    if( pktStatus == CELLULAR_PKT_STATUS_OK )
+    {
+        parseStatus = _parseUEFunctionalityLevel( pInputLine, pUEFunctionalityLevel );
+
+        if( parseStatus != true )
+        {
+            *pUEFunctionalityLevel = BG770_UE_FUNCTIONALITY_LEVEL_UNKNOWN;
+            pktStatus = CELLULAR_PKT_STATUS_FAILURE;
+        }
+    }
+
+    return pktStatus;
+}
+
+static CellularError_t _GetUEFunctionalityLevelWithRetryTimeout( CellularHandle_t cellularHandle,
+                                                                 BG770UEFunctionalityLevel_t *const pUEFunctionalityLevel,
+                                                                 uint32_t commandTimeoutMS,
+                                                                 uint32_t exponentialBackoffInterCommandBaseMS )
+{
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+    uint8_t tryCount = 0;
+
+    if( cellularHandle == NULL || pUEFunctionalityLevel == NULL )
+    {
+        cellularStatus = CELLULAR_BAD_PARAMETER;
+    }
+    else
+    {
+        for( ; tryCount < ENABLE_MODULE_UE_RETRY_COUNT; tryCount++ )
+        {
+            if (tryCount > 0) {
+                // increasing backoff
+                vTaskDelay( pdMS_TO_TICKS( exponentialBackoffInterCommandBaseMS * (uint32_t)tryCount * tryCount ) );
+            }
+
+            cellularStatus = _GetUEFunctionalityLevel( cellularHandle, pUEFunctionalityLevel, commandTimeoutMS );
+
+            if( cellularStatus == CELLULAR_SUCCESS )
+            {
+                break;
+            }
+        }
+    }
+
+    return cellularStatus;
+}
+
+static CellularError_t _GetUEFunctionalityLevel( CellularHandle_t cellularHandle,
+                                                 BG770UEFunctionalityLevel_t *const pUEFunctionalityLevel,
+                                                 uint32_t commandTimeoutMS )
+{
+    CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    CellularAtReq_t atReqGetUEFunctionalityLevel =
+    {
+        "AT+CFUN?",
+        CELLULAR_AT_WITH_PREFIX,
+        "+CFUN",
+        _RecvFuncGetUEFunctionalityLevel,
+        pUEFunctionalityLevel,
+        sizeof( BG770UEFunctionalityLevel_t ),
+    };
+
+    if( pUEFunctionalityLevel == NULL )
+    {
+        cellularStatus = CELLULAR_BAD_PARAMETER;
+    }
+    else
+    {
+        pktStatus = _Cellular_TimeoutAtcmdRequestWithCallback( pContext, atReqGetUEFunctionalityLevel, commandTimeoutMS );
+
+        if( pktStatus != CELLULAR_PKT_STATUS_OK )
+        {
+            LogError( ( "_GetUEFunctionalityLevel: couldn't retrieve UE functionality level" ) );
+            cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
+        }
+    }
+
+    return cellularStatus;
+}
+
+/*-----------------------------------------------------------*/
+
+static CellularError_t _SetDesiredUEFunctionalityLevel( CellularHandle_t cellularHandle, uint32_t commandTimeoutMS )
+{
+    return _SetUEFunctionalityLevel( cellularHandle, DESIRED_UE_ENABLE_FUNCTIONALITY_LEVEL, commandTimeoutMS );
+}
+
+static CellularError_t _SetUEFunctionalityLevel( CellularHandle_t cellularHandle,
+                                                 BG770UEFunctionalityLevel_t ueFunctionalityLevel,
+                                                 uint32_t commandTimeoutMS )
+{
+    CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    char cmdBuf[ CELLULAR_AT_CMD_MAX_SIZE ] = { '\0' };
+    CellularAtReq_t atReqSetUEFunctionalityLevel =
+    {
+        cmdBuf,
+        CELLULAR_AT_NO_RESULT,
+        NULL,
+        NULL,
+        NULL,
+        0,
+    };
+
+    if( ueFunctionalityLevel != BG770_UE_FUNCTIONALITY_LEVEL_MINIMUM &&
+        ueFunctionalityLevel != BG770_UE_FUNCTIONALITY_LEVEL_FULL &&
+        ueFunctionalityLevel != BG770_UE_FUNCTIONALITY_LEVEL_SIM_ONLY )
+    {
+        cellularStatus = CELLULAR_BAD_PARAMETER;
+    }
+    else
+    {
+        /* MISRA Ref 21.6.1 [Use of snprintf] */
+        /* More details at: https://github.com/FreeRTOS/FreeRTOS-Cellular-Interface/blob/main/MISRA.md#rule-216 */
+        /* coverity[misra_c_2012_rule_21_6_violation]. */
+        ( void ) snprintf( cmdBuf, sizeof ( cmdBuf ), "AT+CFUN=%s",
+                           _getUEFunctionalityLevelString( ueFunctionalityLevel ) );
+
+        pktStatus = _Cellular_TimeoutAtcmdRequestWithCallback( pContext, atReqSetUEFunctionalityLevel, commandTimeoutMS );
+
+        if( pktStatus != CELLULAR_PKT_STATUS_OK )
+        {
+            LogError( ( "_SetUEFunctionalityLevel: couldn't set UE functionality level" ) );
+            cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
+        }
+    }
+
+    return cellularStatus;
+}
+
+/*-----------------------------------------------------------*/
+
+static BG770NetworkCategorySearchMode_t _getNetworkCategorySearchMode( const char *const pNetworkCategorySearchModeString )
+{
+    if( strcmp( pNetworkCategorySearchModeString, NET_CAT_SEARCH_MODE_eMTC_STRING ) == 0 )
+    {
+        return BG770_NETWORK_CATEGORY_SEARCH_MODE_eMTC;
+    }
+    else if ( strcmp( pNetworkCategorySearchModeString, NET_CAT_SEARCH_MODE_NB_IoT_STRING ) == 0 )
+    {
+        return BG770_NETWORK_CATEGORY_SEARCH_MODE_NB_IoT;
+    }
+    else if ( strcmp( pNetworkCategorySearchModeString, NET_CAT_SEARCH_MODE_eMTC_AND_NB_IoT_STRING ) == 0 )
+    {
+        return BG770_NETWORK_CATEGORY_SEARCH_MODE_eMTC_AND_NB_IoT;
+    }
+    else
+    {
+        return BG770_NETWORK_CATEGORY_SEARCH_MODE_UNKNOWN;
+    }
+}
+
+static const char * _getNetworkCategorySearchModeString( const BG770NetworkCategorySearchMode_t networkCategorySearchMode )
+{
+    switch( networkCategorySearchMode )
+    {
+        case BG770_NETWORK_CATEGORY_SEARCH_MODE_eMTC:
+            return NET_CAT_SEARCH_MODE_eMTC_STRING;
+
+        case BG770_NETWORK_CATEGORY_SEARCH_MODE_NB_IoT:
+            return NET_CAT_SEARCH_MODE_NB_IoT_STRING;
+
+        case BG770_NETWORK_CATEGORY_SEARCH_MODE_eMTC_AND_NB_IoT:
+            return NET_CAT_SEARCH_MODE_eMTC_AND_NB_IoT_STRING;
+
+        default:
+            LogError( ( "_getNetworkCategorySearchModeString: Invalid BG770NetworkCategorySearchMode_t: %d",
+                        networkCategorySearchMode ) );
+            /**< Intentional fall-through */
+        case BG770_NETWORK_CATEGORY_SEARCH_MODE_UNKNOWN:
+            return "unknown";
+    }
+}
+
+static bool _parseNetworkCategorySearchMode( char * pQNetworkCategorySearchModePayload,
+                                             BG770NetworkCategorySearchMode_t * pNetworkCategorySearchMode )
+{
+    char * pToken = NULL, * pTmpQNetworkCategorySearchModePayload = pQNetworkCategorySearchModePayload;
+    bool parseStatus = true;
+
+    if( ( pNetworkCategorySearchMode == NULL ) || ( pQNetworkCategorySearchModePayload == NULL ) )
+    {
+        LogError( ( "_parseNetworkCategorySearchMode: Invalid Input Parameters" ) );
+        parseStatus = false;
+    }
+
+    if( parseStatus == true )
+    {
+        if( Cellular_ATGetNextTok( &pTmpQNetworkCategorySearchModePayload, &pToken ) != CELLULAR_AT_SUCCESS ||
+            strcmp( pToken, "\"iotopmode\"" ) != 0 )
+        {
+            LogError( ( "_parseNetworkCategorySearchMode: Error, missing \"iotopmode\"" ) );
+            parseStatus = false;
+        }
+    }
+
+    if( parseStatus == true )
+    {
+        if( Cellular_ATGetNextTok( &pTmpQNetworkCategorySearchModePayload, &pToken ) == CELLULAR_AT_SUCCESS )
+        {
+            *pNetworkCategorySearchMode = _getNetworkCategorySearchMode( pToken );
+            if( *pNetworkCategorySearchMode == BG770_NETWORK_CATEGORY_SEARCH_MODE_UNKNOWN ) {
+                LogError( ( "_parseNetworkCategorySearchMode: network category search mode string ('%s') not valid", pToken ) );
+                parseStatus = false;
+            }
+        }
+        else
+        {
+            LogError( ( "_parseNetworkCategorySearchMode: network category search mode string not present" ) );
+            *pNetworkCategorySearchMode = BG770_NETWORK_CATEGORY_SEARCH_MODE_UNKNOWN;
+            parseStatus = false;
+        }
+    }
+    else
+    {
+        if( pNetworkCategorySearchMode != NULL )
+        {
+            *pNetworkCategorySearchMode = BG770_NETWORK_CATEGORY_SEARCH_MODE_UNKNOWN;
+        }
+    }
+
+    return parseStatus;
+}
+
+/* FreeRTOS Cellular Library types. */
+/* coverity[misra_c_2012_rule_8_13_violation] */
+static CellularPktStatus_t _RecvFuncGetNetworkCategorySearchMode( CellularContext_t * pContext,
+                                                                  const CellularATCommandResponse_t * pAtResp,
+                                                                  void * pData,
+                                                                  uint16_t dataLen )
+{
+    char * pInputLine = NULL;
+    BG770NetworkCategorySearchMode_t * pNetworkCategorySearchMode = ( BG770NetworkCategorySearchMode_t * ) pData;
+    bool parseStatus = true;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    CellularATError_t atCoreStatus = CELLULAR_AT_SUCCESS;
+
+    if( pContext == NULL )
+    {
+        pktStatus = CELLULAR_PKT_STATUS_INVALID_HANDLE;
+    }
+    else if( ( pNetworkCategorySearchMode == NULL ) || ( dataLen != sizeof( BG770NetworkCategorySearchMode_t ) ) )
+    {
+        pktStatus = CELLULAR_PKT_STATUS_BAD_PARAM;
+    }
+    else if( ( pAtResp == NULL ) || ( pAtResp->pItm == NULL ) || ( pAtResp->pItm->pLine == NULL ) )
+    {
+        LogError( ( "_GetNetworkCategorySearchMode: Input Line passed is NULL" ) );
+        pktStatus = CELLULAR_PKT_STATUS_FAILURE;
+    }
+    else
+    {
+        pInputLine = pAtResp->pItm->pLine;
+        atCoreStatus = Cellular_ATRemovePrefix( &pInputLine );
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATRemoveAllWhiteSpaces( pInputLine );
+        }
+
+        if( atCoreStatus != CELLULAR_AT_SUCCESS )
+        {
+            pktStatus = _Cellular_TranslateAtCoreStatus( atCoreStatus );
+        }
+    }
+
+    if( pktStatus == CELLULAR_PKT_STATUS_OK )
+    {
+        parseStatus = _parseNetworkCategorySearchMode( pInputLine, pNetworkCategorySearchMode );
+
+        if( parseStatus != true )
+        {
+            *pNetworkCategorySearchMode = BG770_NETWORK_CATEGORY_SEARCH_MODE_UNKNOWN;
+            pktStatus = CELLULAR_PKT_STATUS_FAILURE;
+        }
+    }
+
+    return pktStatus;
+}
+
+static CellularError_t _GetNetworkCategorySearchModeWithRetryTimeout( CellularHandle_t cellularHandle,
+                                                                      BG770NetworkCategorySearchMode_t * pNetworkCategorySearchMode,
+                                                                      uint32_t commandTimeoutMS,
+                                                                      uint32_t exponentialBackoffInterCommandBaseMS )
+{
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+    uint8_t tryCount = 0;
+
+    if( cellularHandle == NULL || pNetworkCategorySearchMode == NULL )
+    {
+        cellularStatus = CELLULAR_BAD_PARAMETER;
+    }
+    else
+    {
+        for( ; tryCount < ENABLE_MODULE_UE_RETRY_COUNT; tryCount++ )
+        {
+            if (tryCount > 0) {
+                // increasing backoff
+                vTaskDelay( pdMS_TO_TICKS( exponentialBackoffInterCommandBaseMS * (uint32_t)tryCount * tryCount ) );
+            }
+
+            cellularStatus = _GetNetworkCategorySearchMode( cellularHandle, pNetworkCategorySearchMode, commandTimeoutMS );
+
+            if( cellularStatus == CELLULAR_SUCCESS )
+            {
+                break;
+            }
+        }
+    }
+
+    return cellularStatus;
+}
+
+static CellularError_t _GetNetworkCategorySearchMode( CellularHandle_t cellularHandle,
+                                                      BG770NetworkCategorySearchMode_t * pNetworkCategorySearchMode,
+                                                      uint32_t commandTimeoutMS )
+{
+    CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    CellularAtReq_t atReqGetNetworkCategorySearchMode =
+    {
+        "AT+QCFG=\"iotopmode\"",
+        CELLULAR_AT_WITH_PREFIX,
+        "+QCFG",
+        _RecvFuncGetNetworkCategorySearchMode,
+        pNetworkCategorySearchMode,
+        sizeof( BG770NetworkCategorySearchMode_t ),
+    };
+
+    if( pNetworkCategorySearchMode == NULL )
+    {
+        cellularStatus = CELLULAR_BAD_PARAMETER;
+    }
+    else
+    {
+        pktStatus = _Cellular_TimeoutAtcmdRequestWithCallback( pContext, atReqGetNetworkCategorySearchMode, commandTimeoutMS );
+
+        if( pktStatus != CELLULAR_PKT_STATUS_OK )
+        {
+            LogError( ( "_GetNetworkCategorySearchMode: couldn't retrieve network category search mode" ) );
+            cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
+        }
+    }
+
+    return cellularStatus;
+}
+
+/*-----------------------------------------------------------*/
+
+static CellularError_t _SetDesiredNetworkCategorySearchMode( CellularHandle_t cellularHandle, uint32_t commandTimeoutMS )
+{
+    return _SetNetworkCategorySearchMode( cellularHandle, DESIRED_NETWORK_CATEGORY_SEARCH_MODE,
+                                          true /* applyImmediately= */, commandTimeoutMS );
+}
+
+static CellularError_t _SetNetworkCategorySearchMode( CellularHandle_t cellularHandle,
+                                                      BG770NetworkCategorySearchMode_t networkCategorySearchMode,
+                                                      bool applyImmediately,
+                                                      uint32_t commandTimeoutMS )
+{
+    CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    char cmdBuf[ CELLULAR_AT_CMD_MAX_SIZE ] = { '\0' };
+    CellularAtReq_t atReqSetNetworkCategorySearchMode =
+    {
+        cmdBuf,
+        CELLULAR_AT_NO_RESULT,
+        NULL,
+        NULL,
+        NULL,
+        0,
+    };
+
+    if( networkCategorySearchMode != BG770_NETWORK_CATEGORY_SEARCH_MODE_eMTC &&
+        networkCategorySearchMode != BG770_NETWORK_CATEGORY_SEARCH_MODE_NB_IoT &&
+        networkCategorySearchMode != BG770_NETWORK_CATEGORY_SEARCH_MODE_eMTC_AND_NB_IoT )
+    {
+        cellularStatus = CELLULAR_BAD_PARAMETER;
+    }
+    else
+    {
+        /* MISRA Ref 21.6.1 [Use of snprintf] */
+        /* More details at: https://github.com/FreeRTOS/FreeRTOS-Cellular-Interface/blob/main/MISRA.md#rule-216 */
+        /* coverity[misra_c_2012_rule_21_6_violation]. */
+        ( void ) snprintf( cmdBuf, sizeof ( cmdBuf ), "AT+QCFG=\"iotopmode\",%s,%s",
+                           _getNetworkCategorySearchModeString( networkCategorySearchMode),
+                           ( applyImmediately ? "1" : "0" ) );
+
+        pktStatus = _Cellular_TimeoutAtcmdRequestWithCallback( pContext, atReqSetNetworkCategorySearchMode,
+                                                               commandTimeoutMS );
+
+        if( pktStatus != CELLULAR_PKT_STATUS_OK )
+        {
+            LogError( ( "_SetNetworkCategorySearchMode: couldn't set network category search mode" ) );
             cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
         }
     }
