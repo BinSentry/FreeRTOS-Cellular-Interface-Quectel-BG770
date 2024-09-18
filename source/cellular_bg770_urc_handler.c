@@ -910,7 +910,7 @@ static void _Cellular_ProcessPSMTimerurc(CellularContext_t * pContext,
     else
     {
         // FUTURE: Pass timer info through modem event callback
-        LogDebug( ( "_Cellular_ProcessPSMTimerurc: Modem PSM timer start event received" ) );
+        LogDebug( ( "_Cellular_ProcessPSMTimerurc: Modem PSM timer event received, '%s'", pInputLine ) );
         _Cellular_ModemEventCallback( pContext, CELLULAR_MODEM_EVENT_PSM_TIMER );
     }
 }
