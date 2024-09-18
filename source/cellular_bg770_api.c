@@ -3013,6 +3013,299 @@ CellularError_t Cellular_ActivatePdn( CellularHandle_t cellularHandle,
 
 /*-----------------------------------------------------------*/
 
+static bool _parsePdnConfig( char * pPdnConfigPayload,
+                             CellularPdnConfig_t * pPdnConfig )
+{
+    char * pToken = NULL, * pTmpPdnConfigPayload = pPdnConfigPayload;
+    int32_t tempValue = 0;
+    bool parseStatus = true;
+    CellularATError_t atCoreStatus = CELLULAR_AT_SUCCESS;
+
+    if( ( pPdnConfig == NULL ) || ( pPdnConfigPayload == NULL ) )
+    {
+        LogError( ( "_parsePdnConfig: Invalid Input Parameters" ) );
+        parseStatus = false;
+    }
+
+    if( parseStatus == true )
+    {
+        /* PDN context type (ie. IPv4, IPv6, IPv4v6) */
+        if( Cellular_ATGetNextTok( &pTmpPdnConfigPayload, &pToken ) == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATStrtoi( pToken, 10, &tempValue );
+
+            if( atCoreStatus == CELLULAR_AT_SUCCESS )
+            {
+                if( ( tempValue >= 0 ) && ( tempValue < ( int32_t ) CELLULAR_PDN_CONTEXT_TYPE_MAX ) )
+                {
+                    pPdnConfig->pdnContextType = ( CellularPdnContextType_t ) tempValue;
+                }
+                else
+                {
+                    atCoreStatus = CELLULAR_AT_ERROR;
+                }
+            }
+
+            if( atCoreStatus != CELLULAR_AT_SUCCESS )
+            {
+                LogError( ( "_parsePdnConfig: Error in processing context type, err: %d. Token '%s'.",
+                            atCoreStatus, pToken ) );
+                parseStatus = false;
+                pPdnConfig->pdnContextType = CELLULAR_PDN_CONTEXT_TYPE_MAX;
+            }
+        }
+        else
+        {
+            LogError( ( "_parsePdnConfig: Error, missing PDN context type" ) );
+            parseStatus = false;
+            pPdnConfig->pdnContextType = CELLULAR_PDN_CONTEXT_TYPE_MAX;
+        }
+    }
+
+    if( parseStatus == true )
+    {
+        /* APN name */
+        if( Cellular_ATGetNextTok( &pTmpPdnConfigPayload, &pToken ) == CELLULAR_AT_SUCCESS )
+        {
+            (void) strncpy( pPdnConfig->apnName, pToken, sizeof ( pPdnConfig->apnName ) );
+            if( pPdnConfig->apnName[ sizeof ( pPdnConfig->apnName ) - 1 ] != '\0' )
+            {
+                pPdnConfig->apnName[ sizeof ( pPdnConfig->apnName ) - 1 ] = '\0';
+                LogWarn( ( "_parsePdnConfig: APN name string truncation. Token '%s' apnName '%s'",
+                           pToken, pPdnConfig->apnName ) );
+            }
+        }
+        else
+        {
+            LogError( ( "_parsePdnConfig: APN name string not present" ) );
+            parseStatus = false;
+            pPdnConfig->apnName[0] = '\0';
+            pPdnConfig->username[0] = '\0';
+            pPdnConfig->password[0] = '\0';
+        }
+    }
+
+    if( parseStatus == true )
+    {
+        /* Username */
+        if( Cellular_ATGetNextTok( &pTmpPdnConfigPayload, &pToken ) == CELLULAR_AT_SUCCESS )
+        {
+            (void) strncpy( pPdnConfig->username, pToken, sizeof ( pPdnConfig->username ) );
+            if( pPdnConfig->username[ sizeof ( pPdnConfig->username ) - 1 ] != '\0' )
+            {
+                pPdnConfig->username[ sizeof ( pPdnConfig->username ) - 1 ] = '\0';
+                LogWarn( ( "_parsePdnConfig: Username string truncation. Token '%s' username '%s'",
+                           pToken, pPdnConfig->username ) );
+            }
+        }
+        else
+        {
+            LogError( ( "_parsePdnConfig: Username string not present" ) );
+            parseStatus = false;
+            pPdnConfig->username[0] = '\0';
+            pPdnConfig->password[0] = '\0';
+        }
+    }
+
+    if( parseStatus == true )
+    {
+        /* Password */
+        if( Cellular_ATGetNextTok( &pTmpPdnConfigPayload, &pToken ) == CELLULAR_AT_SUCCESS )
+        {
+            (void) strncpy( pPdnConfig->password, pToken, sizeof ( pPdnConfig->password ) );
+            if( pPdnConfig->password[ sizeof ( pPdnConfig->password ) - 1 ] != '\0' )
+            {
+                pPdnConfig->password[ sizeof ( pPdnConfig->password ) - 1 ] = '\0';
+                LogWarn( ( "_parsePdnConfig: Password string truncation. Token '%s' password '%s'",
+                           pToken, pPdnConfig->password ) );
+            }
+        }
+        else
+        {
+            LogError( ( "_parsePdnConfig: Password string not present" ) );
+            parseStatus = false;
+            pPdnConfig->password[0] = '\0';
+        }
+    }
+
+    if( parseStatus == true )
+    {
+        /* PDN authentication method */
+        if( Cellular_ATGetNextTok( &pTmpPdnConfigPayload, &pToken ) == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATStrtoi( pToken, 10, &tempValue );
+
+            if( atCoreStatus == CELLULAR_AT_SUCCESS )
+            {
+                /* CELLULAR_PDN_AUTH_PAP_OR_CHAP not supported by BG770 */
+                if( ( tempValue >= 0 ) && ( tempValue < ( int32_t ) 3 ) )
+                {
+                    switch ( tempValue )
+                    {
+                        case 0:
+                            pPdnConfig->pdnAuthType = CELLULAR_PDN_AUTH_NONE;
+                            break;
+
+                        case 1:
+                            pPdnConfig->pdnAuthType = CELLULAR_PDN_AUTH_PAP;
+                            break;
+
+                        case 2:
+                            pPdnConfig->pdnAuthType = CELLULAR_PDN_AUTH_CHAP;
+                            break;
+
+                        default:
+                            atCoreStatus = CELLULAR_AT_ERROR;
+                            break;
+                    }
+                }
+                else
+                {
+                    atCoreStatus = CELLULAR_AT_ERROR;
+                }
+            }
+
+            if( atCoreStatus != CELLULAR_AT_SUCCESS )
+            {
+                LogError( ( "_parsePdnConfig: Error in processing Authentication, err: %d. Token '%s'.",
+                            atCoreStatus, pToken ) );
+                parseStatus = false;
+                pPdnConfig->pdnAuthType = CELLULAR_PDN_AUTH_NONE;
+            }
+        }
+        else
+        {
+            LogInfo( ( "_parsePdnConfig: Authentication not present" ) );
+            parseStatus = false;
+            pPdnConfig->pdnAuthType = CELLULAR_PDN_AUTH_NONE;
+        }
+    }
+
+    return parseStatus;
+}
+
+/* FreeRTOS Cellular Library types. */
+/* coverity[misra_c_2012_rule_8_13_violation] */
+static CellularPktStatus_t _Cellular_RecvFuncGetPdnConfig( CellularContext_t * pContext,
+                                                           const CellularATCommandResponse_t * pAtResp,
+                                                           void * pData,
+                                                           uint16_t dataLen )
+{
+    char * pInputLine = NULL;
+    CellularPdnConfig_t * pPdnConfig = ( CellularPdnConfig_t * ) pData;
+    bool parseStatus = true;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    CellularATError_t atCoreStatus = CELLULAR_AT_SUCCESS;
+
+    if( pContext == NULL )
+    {
+        pktStatus = CELLULAR_PKT_STATUS_INVALID_HANDLE;
+    }
+    else if( ( pPdnConfig == NULL ) || ( dataLen != sizeof( CellularPdnConfig_t ) ) )
+    {
+        pktStatus = CELLULAR_PKT_STATUS_BAD_PARAM;
+    }
+    else if( ( pAtResp == NULL ) || ( pAtResp->pItm == NULL ) || ( pAtResp->pItm->pLine == NULL ) )
+    {
+        LogError( ( "GetPdnConfig: Input Line passed is NULL" ) );
+        pktStatus = CELLULAR_PKT_STATUS_FAILURE;
+    }
+    else
+    {
+        pInputLine = pAtResp->pItm->pLine;
+        atCoreStatus = Cellular_ATRemovePrefix( &pInputLine );
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATRemoveAllDoubleQuote( pInputLine );
+        }
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATRemoveLeadingWhiteSpaces( &pInputLine );
+        }
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATRemoveTrailingWhiteSpaces( pInputLine );
+        }
+
+        if( atCoreStatus != CELLULAR_AT_SUCCESS )
+        {
+            pktStatus = _Cellular_TranslateAtCoreStatus( atCoreStatus );
+        }
+    }
+
+    if( pktStatus == CELLULAR_PKT_STATUS_OK )
+    {
+        parseStatus = _parsePdnConfig( pInputLine, pPdnConfig );
+
+        if( parseStatus != true )
+        {
+            pktStatus = CELLULAR_PKT_STATUS_FAILURE;
+        }
+    }
+
+    return pktStatus;
+}
+
+CellularError_t Cellular_GetPdnConfig( CellularHandle_t cellularHandle,
+                                       uint8_t contextId,
+                                       CellularPdnConfig_t * pPdnConfig )
+{
+    CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    char cmdBuf[ CELLULAR_AT_CMD_MAX_SIZE ] = { '\0' };
+    CellularAtReq_t atReqGetPdn =
+    {
+        cmdBuf,
+        CELLULAR_AT_WITH_PREFIX,
+        "+QICSGP",
+        _Cellular_RecvFuncGetPdnConfig,
+        pPdnConfig,
+        sizeof( CellularPdnConfig_t ),
+    };
+
+    if( pPdnConfig == NULL )
+    {
+        LogError( ( "Cellular_ATCommandRaw: Input parameter is NULL" ) );
+        cellularStatus = CELLULAR_BAD_PARAMETER;
+    }
+
+    if( cellularStatus == CELLULAR_SUCCESS )
+    {
+        cellularStatus = _Cellular_IsValidPdn( contextId );
+    }
+
+    if( cellularStatus == CELLULAR_SUCCESS )
+    {
+        /* Make sure the library is open. */
+        cellularStatus = _Cellular_CheckLibraryStatus( pContext );
+    }
+
+    if( cellularStatus == CELLULAR_SUCCESS )
+    {
+        /* Form the AT command. */
+
+        /* The return value of snprintf is not used.
+         * The max length of the string is fixed and checked offline. */
+        /* coverity[misra_c_2012_rule_21_6_violation]. */
+        ( void ) snprintf( cmdBuf, CELLULAR_AT_CMD_MAX_SIZE, "AT+QICSGP=%d", contextId );
+        pktStatus = _Cellular_AtcmdRequestWithCallback( pContext, atReqGetPdn );
+
+        if( pktStatus != CELLULAR_PKT_STATUS_OK )
+        {
+            LogError( ( "Cellular_GetPdnConfig: can't get PDN config, cmdBuf:'%s', PktRet: %d", cmdBuf, pktStatus ) );
+            cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
+        }
+    }
+
+    return cellularStatus;
+}
+
+/*-----------------------------------------------------------*/
+
 /* FreeRTOS Cellular Library API. */
 /* coverity[misra_c_2012_rule_8_7_violation] */
 CellularError_t Cellular_SetPdnConfig( CellularHandle_t cellularHandle,
