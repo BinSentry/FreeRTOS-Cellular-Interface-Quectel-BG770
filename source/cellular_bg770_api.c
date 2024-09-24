@@ -29,6 +29,7 @@
 #include <stdlib.h>
 #include <limits.h>
 #include <ctype.h>
+#include <assert.h>
 
 /* The config header is always included first. */
 #ifndef CELLULAR_DO_NOT_USE_CUSTOM_CONFIG
