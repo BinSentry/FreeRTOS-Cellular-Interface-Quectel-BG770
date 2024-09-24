@@ -129,6 +129,7 @@ extern uint32_t CellularUrcTokenWoPrefixTableSize;
 /**
  * @brief Set whether to skip all configuration of the BG770 that occurs after the H/W flow control setting if the
  *        H/W flow control setting changed.
+ *        NOTE: Not thread safe, expected to be called when Cellular_Init() is not running, ideally from the same thread.
  *
  * @param[in] skipPostHWFlowControlSetupIfChanged Boolean of whether to skip all setup after setting H/W flow control
  *                                                mode if flow control mode changed.
@@ -141,6 +142,7 @@ CellularError_t CellularModule_SkipInitializationPostHWFlowControlSetupIfChanged
 
 /**
  * @brief Retrieve whether post H/W flow control initialization was skipped.
+ *        NOTE: Not thread safe, expected to be called when Cellular_Init() is not running, ideally from the same thread.
  *
  * @param[out] pSkippedResult pointer to memory to place result.
  *
