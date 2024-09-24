@@ -29,6 +29,7 @@
 #include <stdlib.h>
 #include <limits.h>
 #include <ctype.h>
+#include <assert.h>
 
 /* The config header is always included first. */
 #ifndef CELLULAR_DO_NOT_USE_CUSTOM_CONFIG
@@ -3004,6 +3005,299 @@ CellularError_t Cellular_ActivatePdn( CellularHandle_t cellularHandle,
         if( pktStatus != CELLULAR_PKT_STATUS_OK )
         {
             LogError( ( "Cellular_ActivatePdn: can't activate PDN, cmdBuf:%s, PktRet: %d", cmdBuf, pktStatus ) );
+            cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
+        }
+    }
+
+    return cellularStatus;
+}
+
+/*-----------------------------------------------------------*/
+
+static bool _parsePdnConfig( char * pPdnConfigPayload,
+                             CellularPdnConfig_t * pPdnConfig )
+{
+    char * pToken = NULL, * pTmpPdnConfigPayload = pPdnConfigPayload;
+    int32_t tempValue = 0;
+    bool parseStatus = true;
+    CellularATError_t atCoreStatus = CELLULAR_AT_SUCCESS;
+
+    if( ( pPdnConfig == NULL ) || ( pPdnConfigPayload == NULL ) )
+    {
+        LogError( ( "_parsePdnConfig: Invalid Input Parameters" ) );
+        parseStatus = false;
+    }
+
+    if( parseStatus == true )
+    {
+        /* PDN context type (ie. IPv4, IPv6, IPv4v6) */
+        if( Cellular_ATGetNextTok( &pTmpPdnConfigPayload, &pToken ) == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATStrtoi( pToken, 10, &tempValue );
+
+            if( atCoreStatus == CELLULAR_AT_SUCCESS )
+            {
+                if( ( tempValue >= 0 ) && ( tempValue < ( int32_t ) CELLULAR_PDN_CONTEXT_TYPE_MAX ) )
+                {
+                    pPdnConfig->pdnContextType = ( CellularPdnContextType_t ) tempValue;
+                }
+                else
+                {
+                    atCoreStatus = CELLULAR_AT_ERROR;
+                }
+            }
+
+            if( atCoreStatus != CELLULAR_AT_SUCCESS )
+            {
+                LogError( ( "_parsePdnConfig: Error in processing context type, err: %d. Token '%s'.",
+                            atCoreStatus, pToken ) );
+                parseStatus = false;
+                pPdnConfig->pdnContextType = CELLULAR_PDN_CONTEXT_TYPE_MAX;
+            }
+        }
+        else
+        {
+            LogError( ( "_parsePdnConfig: Error, missing PDN context type" ) );
+            parseStatus = false;
+            pPdnConfig->pdnContextType = CELLULAR_PDN_CONTEXT_TYPE_MAX;
+        }
+    }
+
+    if( parseStatus == true )
+    {
+        /* APN name */
+        if( Cellular_ATGetNextTok( &pTmpPdnConfigPayload, &pToken ) == CELLULAR_AT_SUCCESS )
+        {
+            (void) strncpy( pPdnConfig->apnName, pToken, sizeof ( pPdnConfig->apnName ) );
+            if( pPdnConfig->apnName[ sizeof ( pPdnConfig->apnName ) - 1 ] != '\0' )
+            {
+                pPdnConfig->apnName[ sizeof ( pPdnConfig->apnName ) - 1 ] = '\0';
+                LogWarn( ( "_parsePdnConfig: APN name string truncation. Token '%s' apnName '%s'",
+                           pToken, pPdnConfig->apnName ) );
+            }
+        }
+        else
+        {
+            LogError( ( "_parsePdnConfig: APN name string not present" ) );
+            parseStatus = false;
+            pPdnConfig->apnName[0] = '\0';
+            pPdnConfig->username[0] = '\0';
+            pPdnConfig->password[0] = '\0';
+        }
+    }
+
+    if( parseStatus == true )
+    {
+        /* Username */
+        if( Cellular_ATGetNextTok( &pTmpPdnConfigPayload, &pToken ) == CELLULAR_AT_SUCCESS )
+        {
+            (void) strncpy( pPdnConfig->username, pToken, sizeof ( pPdnConfig->username ) );
+            if( pPdnConfig->username[ sizeof ( pPdnConfig->username ) - 1 ] != '\0' )
+            {
+                pPdnConfig->username[ sizeof ( pPdnConfig->username ) - 1 ] = '\0';
+                LogWarn( ( "_parsePdnConfig: Username string truncation. Token '%s' username '%s'",
+                           pToken, pPdnConfig->username ) );
+            }
+        }
+        else
+        {
+            LogError( ( "_parsePdnConfig: Username string not present" ) );
+            parseStatus = false;
+            pPdnConfig->username[0] = '\0';
+            pPdnConfig->password[0] = '\0';
+        }
+    }
+
+    if( parseStatus == true )
+    {
+        /* Password */
+        if( Cellular_ATGetNextTok( &pTmpPdnConfigPayload, &pToken ) == CELLULAR_AT_SUCCESS )
+        {
+            (void) strncpy( pPdnConfig->password, pToken, sizeof ( pPdnConfig->password ) );
+            if( pPdnConfig->password[ sizeof ( pPdnConfig->password ) - 1 ] != '\0' )
+            {
+                pPdnConfig->password[ sizeof ( pPdnConfig->password ) - 1 ] = '\0';
+                LogWarn( ( "_parsePdnConfig: Password string truncation. Token '%s' password '%s'",
+                           pToken, pPdnConfig->password ) );
+            }
+        }
+        else
+        {
+            LogError( ( "_parsePdnConfig: Password string not present" ) );
+            parseStatus = false;
+            pPdnConfig->password[0] = '\0';
+        }
+    }
+
+    if( parseStatus == true )
+    {
+        /* PDN authentication method */
+        if( Cellular_ATGetNextTok( &pTmpPdnConfigPayload, &pToken ) == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATStrtoi( pToken, 10, &tempValue );
+
+            if( atCoreStatus == CELLULAR_AT_SUCCESS )
+            {
+                /* CELLULAR_PDN_AUTH_PAP_OR_CHAP not supported by BG770 */
+                if( ( tempValue >= 0 ) && ( tempValue < ( int32_t ) 3 ) )
+                {
+                    switch ( tempValue )
+                    {
+                        case 0:
+                            pPdnConfig->pdnAuthType = CELLULAR_PDN_AUTH_NONE;
+                            break;
+
+                        case 1:
+                            pPdnConfig->pdnAuthType = CELLULAR_PDN_AUTH_PAP;
+                            break;
+
+                        case 2:
+                            pPdnConfig->pdnAuthType = CELLULAR_PDN_AUTH_CHAP;
+                            break;
+
+                        default:
+                            atCoreStatus = CELLULAR_AT_ERROR;
+                            break;
+                    }
+                }
+                else
+                {
+                    atCoreStatus = CELLULAR_AT_ERROR;
+                }
+            }
+
+            if( atCoreStatus != CELLULAR_AT_SUCCESS )
+            {
+                LogError( ( "_parsePdnConfig: Error in processing Authentication, err: %d. Token '%s'.",
+                            atCoreStatus, pToken ) );
+                parseStatus = false;
+                pPdnConfig->pdnAuthType = CELLULAR_PDN_AUTH_NONE;
+            }
+        }
+        else
+        {
+            LogInfo( ( "_parsePdnConfig: Authentication not present" ) );
+            parseStatus = false;
+            pPdnConfig->pdnAuthType = CELLULAR_PDN_AUTH_NONE;
+        }
+    }
+
+    return parseStatus;
+}
+
+/* FreeRTOS Cellular Library types. */
+/* coverity[misra_c_2012_rule_8_13_violation] */
+static CellularPktStatus_t _Cellular_RecvFuncGetPdnConfig( CellularContext_t * pContext,
+                                                           const CellularATCommandResponse_t * pAtResp,
+                                                           void * pData,
+                                                           uint16_t dataLen )
+{
+    char * pInputLine = NULL;
+    CellularPdnConfig_t * pPdnConfig = ( CellularPdnConfig_t * ) pData;
+    bool parseStatus = true;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    CellularATError_t atCoreStatus = CELLULAR_AT_SUCCESS;
+
+    if( pContext == NULL )
+    {
+        pktStatus = CELLULAR_PKT_STATUS_INVALID_HANDLE;
+    }
+    else if( ( pPdnConfig == NULL ) || ( dataLen != sizeof( CellularPdnConfig_t ) ) )
+    {
+        pktStatus = CELLULAR_PKT_STATUS_BAD_PARAM;
+    }
+    else if( ( pAtResp == NULL ) || ( pAtResp->pItm == NULL ) || ( pAtResp->pItm->pLine == NULL ) )
+    {
+        LogError( ( "GetPdnConfig: Input Line passed is NULL" ) );
+        pktStatus = CELLULAR_PKT_STATUS_FAILURE;
+    }
+    else
+    {
+        pInputLine = pAtResp->pItm->pLine;
+        atCoreStatus = Cellular_ATRemovePrefix( &pInputLine );
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATRemoveAllDoubleQuote( pInputLine );
+        }
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATRemoveLeadingWhiteSpaces( &pInputLine );
+        }
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATRemoveTrailingWhiteSpaces( pInputLine );
+        }
+
+        if( atCoreStatus != CELLULAR_AT_SUCCESS )
+        {
+            pktStatus = _Cellular_TranslateAtCoreStatus( atCoreStatus );
+        }
+    }
+
+    if( pktStatus == CELLULAR_PKT_STATUS_OK )
+    {
+        parseStatus = _parsePdnConfig( pInputLine, pPdnConfig );
+
+        if( parseStatus != true )
+        {
+            pktStatus = CELLULAR_PKT_STATUS_FAILURE;
+        }
+    }
+
+    return pktStatus;
+}
+
+CellularError_t Cellular_GetPdnConfig( CellularHandle_t cellularHandle,
+                                       uint8_t contextId,
+                                       CellularPdnConfig_t * pPdnConfig )
+{
+    CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    char cmdBuf[ CELLULAR_AT_CMD_MAX_SIZE ] = { '\0' };
+    CellularAtReq_t atReqGetPdn =
+    {
+        cmdBuf,
+        CELLULAR_AT_WITH_PREFIX,
+        "+QICSGP",
+        _Cellular_RecvFuncGetPdnConfig,
+        pPdnConfig,
+        sizeof( CellularPdnConfig_t ),
+    };
+
+    if( pPdnConfig == NULL )
+    {
+        LogError( ( "Cellular_ATCommandRaw: Input parameter is NULL" ) );
+        cellularStatus = CELLULAR_BAD_PARAMETER;
+    }
+
+    if( cellularStatus == CELLULAR_SUCCESS )
+    {
+        cellularStatus = _Cellular_IsValidPdn( contextId );
+    }
+
+    if( cellularStatus == CELLULAR_SUCCESS )
+    {
+        /* Make sure the library is open. */
+        cellularStatus = _Cellular_CheckLibraryStatus( pContext );
+    }
+
+    if( cellularStatus == CELLULAR_SUCCESS )
+    {
+        /* Form the AT command. */
+
+        /* The return value of snprintf is not used.
+         * The max length of the string is fixed and checked offline. */
+        /* coverity[misra_c_2012_rule_21_6_violation]. */
+        ( void ) snprintf( cmdBuf, CELLULAR_AT_CMD_MAX_SIZE, "AT+QICSGP=%d", contextId );
+        pktStatus = _Cellular_AtcmdRequestWithCallback( pContext, atReqGetPdn );
+
+        if( pktStatus != CELLULAR_PKT_STATUS_OK )
+        {
+            LogError( ( "Cellular_GetPdnConfig: can't get PDN config, cmdBuf:'%s', PktRet: %d", cmdBuf, pktStatus ) );
             cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
         }
     }
@@ -8009,6 +8303,303 @@ CellularError_t Cellular_GetLTENetworkInfo( CellularHandle_t cellularHandle,
     } else {
         pLTENetworkInfo->cellId = CELLULAR_INVALID_CELL_ID;
         pLTENetworkInfo->trackingAreaCode = CELLULAR_INVALID_TRACKING_AREA_CODE;
+    }
+
+    return cellularStatus;
+}
+
+/*-----------------------------------------------------------*/
+
+static bool _Cellular_ParseBandScanPriorityList( char * pQcfLteBandPriorPayload,
+                                                 CellularBandScanPriorityList_t * pBandScanPriorityList )
+{
+    char * pToken = NULL, * pTmpQcfLteBandPriorPayload = pQcfLteBandPriorPayload;
+    CellularATError_t atCoreStatus = CELLULAR_AT_SUCCESS;
+    bool parseStatus = true;
+    int32_t tempValue = 0;
+
+    if( ( pBandScanPriorityList == NULL ) || ( pQcfLteBandPriorPayload == NULL ) )
+    {
+        LogError( ( "_GetBandScanPriorityList: Invalid Input Parameters" ) );
+        parseStatus = false;
+    }
+
+    if( parseStatus == true )
+    {
+        if( Cellular_ATGetNextTok( &pTmpQcfLteBandPriorPayload, &pToken ) != CELLULAR_AT_SUCCESS ||
+            strcmp( pToken, "\"lte/bandprior\"" ) != 0 )
+        {
+            LogError( ( "_GetBandScanPriorityList: Error, missing \"lte/bandprior\"" ) );
+            parseStatus = false;
+        }
+    }
+
+    if( parseStatus == true )
+    {
+        memset( &pBandScanPriorityList->bandScanList[ 0 ], 0, sizeof( pBandScanPriorityList->bandScanList ) );
+        pBandScanPriorityList->count = 0;
+        static_assert( CELLULAR_BAND_SCAN_PRIORITY_LIST_MAX_SIZE < UINT8_MAX, "Implementation assumption" );
+        while( pBandScanPriorityList->count < CELLULAR_BAND_SCAN_PRIORITY_LIST_MAX_SIZE )
+        {
+            if( Cellular_ATGetNextTok( &pTmpQcfLteBandPriorPayload, &pToken ) == CELLULAR_AT_SUCCESS )
+            {
+                atCoreStatus = Cellular_ATStrtoi( pToken, 10, &tempValue );
+
+                if( atCoreStatus == CELLULAR_AT_SUCCESS )
+                {
+                    if( ( tempValue >= 0 ) && ( tempValue <= ( int32_t ) UINT8_MAX ) )
+                    {
+                        pBandScanPriorityList->bandScanList[ pBandScanPriorityList->count ] = ( uint8_t ) tempValue;
+                        pBandScanPriorityList->count++;
+                    }
+                    else
+                    {
+                        atCoreStatus = CELLULAR_AT_ERROR;
+                    }
+                }
+
+                if( atCoreStatus != CELLULAR_AT_SUCCESS )
+                {
+                    LogError( ( "_GetBandScanPriorityList: Error in processing band in priority list. Token '%s'", pToken ) );
+                    parseStatus = false;
+                    break;
+                }
+            }
+            else
+            {
+                if( pBandScanPriorityList->count == 0 )
+                {
+                    LogWarn( ( "_GetBandScanPriorityList: band scan priority list empty." ) );
+                }
+
+                break;
+            }
+        }
+    }
+
+    if( Cellular_ATGetNextTok( &pTmpQcfLteBandPriorPayload, &pToken ) == CELLULAR_AT_SUCCESS )
+    {
+        LogWarn( ( "_GetBandScanPriorityList: band scan priority list exceeds max size. NextTkn: %s, Remain: %s",
+                    pToken, ( pTmpQcfLteBandPriorPayload != NULL ? pTmpQcfLteBandPriorPayload : "<null>" ) ) );
+    }
+
+    return parseStatus;
+}
+
+/* FreeRTOS Cellular Library types. */
+/* coverity[misra_c_2012_rule_8_13_violation] */
+static CellularPktStatus_t _Cellular_RecvFuncGetBandScanPriorityList( CellularContext_t * pContext,
+                                                                      const CellularATCommandResponse_t * pAtResp,
+                                                                      void * pData,
+                                                                      uint16_t dataLen )
+{
+    char * pInputLine = NULL;
+    CellularBandScanPriorityList_t * pBandScanPriorityList = ( CellularBandScanPriorityList_t * ) pData;
+    bool parseStatus = true;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    CellularATError_t atCoreStatus = CELLULAR_AT_SUCCESS;
+
+    if( pContext == NULL )
+    {
+        pktStatus = CELLULAR_PKT_STATUS_INVALID_HANDLE;
+    }
+    else if( ( pBandScanPriorityList == NULL ) || ( dataLen != sizeof( CellularBandScanPriorityList_t ) ) )
+    {
+        pktStatus = CELLULAR_PKT_STATUS_BAD_PARAM;
+    }
+    else if( ( pAtResp == NULL ) || ( pAtResp->pItm == NULL ) || ( pAtResp->pItm->pLine == NULL ) )
+    {
+        LogError( ( "_GetBandScanPriorityList: Input Line passed is NULL" ) );
+        pktStatus = CELLULAR_PKT_STATUS_FAILURE;
+    }
+    else
+    {
+        pInputLine = pAtResp->pItm->pLine;
+        atCoreStatus = Cellular_ATRemovePrefix( &pInputLine );
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATRemoveAllWhiteSpaces( pInputLine );
+        }
+
+        if( atCoreStatus != CELLULAR_AT_SUCCESS )
+        {
+            pktStatus = _Cellular_TranslateAtCoreStatus( atCoreStatus );
+        }
+    }
+
+    if( pktStatus == CELLULAR_PKT_STATUS_OK )
+    {
+        parseStatus = _Cellular_ParseBandScanPriorityList(pInputLine, pBandScanPriorityList);
+        if( parseStatus != true )
+        {
+            memset( &pBandScanPriorityList->bandScanList, 0x00, sizeof( pBandScanPriorityList->bandScanList ) );
+            pBandScanPriorityList->count = 0;
+            pktStatus = CELLULAR_PKT_STATUS_FAILURE;
+        }
+    }
+
+    return pktStatus;
+}
+
+CellularError_t Cellular_GetBandScanPriorityList( CellularHandle_t cellularHandle,
+                                                  CellularBandScanPriorityList_t *const pBandScanPriorityList )
+{
+    CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+
+    const CellularAtReq_t atReqGetBandScanPriorityList =
+    {
+        "AT+QCFG=\"lte/bandprior\"",
+        CELLULAR_AT_WITH_PREFIX,
+        "+QCFG",
+        _Cellular_RecvFuncGetBandScanPriorityList,
+        pBandScanPriorityList,
+        sizeof( CellularBandScanPriorityList_t ),
+    };
+
+    cellularStatus = _Cellular_CheckLibraryStatus( pContext );
+
+    if( cellularStatus != CELLULAR_SUCCESS )
+    {
+        LogDebug( ( "_Cellular_CheckLibraryStatus failed" ) );
+    }
+    else if( pBandScanPriorityList == NULL )
+    {
+        cellularStatus = CELLULAR_BAD_PARAMETER;
+    }
+    else
+    {
+        pktStatus = _Cellular_AtcmdRequestWithCallback(pContext, atReqGetBandScanPriorityList );
+
+        if( pktStatus != CELLULAR_PKT_STATUS_OK )
+        {
+            LogError( ( "_GetBandScanPriorityList: couldn't retrieve band scan priority list, err: %d", pktStatus ) );
+            cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
+        }
+    }
+
+    return cellularStatus;
+}
+
+/*-----------------------------------------------------------*/
+
+/**< NOTE: maxStringLength includes null terminator */
+CellularError_t Cellular_BuildBandScanPriorityListString( const CellularBandScanPriorityList_t *const pBandScanPriorityList,
+                                                          char *const out_pBandScanPriorityListString,
+                                                          const unsigned int maxStringLength )
+{
+    if( ( pBandScanPriorityList == NULL ) || ( pBandScanPriorityList->count == 0 ) ||
+        ( out_pBandScanPriorityListString == NULL ) || ( maxStringLength <= 1 ) )
+    {
+        return CELLULAR_BAD_PARAMETER;
+    }
+
+    out_pBandScanPriorityListString[0] = '\0';
+    size_t usedStringLength = 0;
+
+    for( int listIndex = 0; listIndex < ( int ) pBandScanPriorityList->count; listIndex++ )
+    {
+        const int currentBand = ( int ) pBandScanPriorityList->bandScanList[listIndex];
+        char currentBandStringBuffer[5];    /* possible comma (1 char) + 3 characters + null terminator */
+
+        /* MISRA Ref 21.6.1 [Use of snprintf] */
+        /* More details at: https://github.com/FreeRTOS/FreeRTOS-Cellular-Interface/blob/main/MISRA.md#rule-216 */
+        /* coverity[misra_c_2012_rule_21_6_violation]. */
+        const char *const BAND_FORMAT_STRING = ( ( listIndex == 0 ) ? "%d" : ",%d" );
+        const int bandStringLength = snprintf( currentBandStringBuffer, sizeof( currentBandStringBuffer ),
+                                               BAND_FORMAT_STRING, currentBand );
+        if( ( bandStringLength < 0 ) || ( bandStringLength >= (int)sizeof( currentBandStringBuffer ) ) )
+        {
+            return CELLULAR_INTERNAL_FAILURE;
+        }
+
+        const size_t lengthToAppend = strlen(currentBandStringBuffer);
+        if( lengthToAppend > 0 )
+        {
+            /* less than maxStringLength so that there's still room for null terminator */
+            if( usedStringLength + lengthToAppend < maxStringLength )
+            {
+                strcat( out_pBandScanPriorityListString, currentBandStringBuffer );
+                usedStringLength += lengthToAppend;
+            }
+            else
+            {
+                return CELLULAR_NO_MEMORY;
+            }
+        }
+    }
+
+    return CELLULAR_SUCCESS;
+}
+
+CellularError_t Cellular_SetBandScanPriorityList( CellularHandle_t cellularHandle,
+                                                  const CellularBandScanPriorityList_t *const pBandScanPriorityList )
+{
+    CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    char cmdBuf[ CELLULAR_AT_CMD_MAX_SIZE ] = { '\0' };
+    size_t currentStringLength = 0;
+    CellularError_t buildResult = CELLULAR_INTERNAL_FAILURE;
+    CellularAtReq_t atReqSetBandScanPriorityList =
+    {
+        cmdBuf,
+        CELLULAR_AT_NO_RESULT,
+        NULL,
+        NULL,
+        NULL,
+        0,
+    };
+
+    cellularStatus = _Cellular_CheckLibraryStatus( pContext );
+
+    if( cellularStatus != CELLULAR_SUCCESS )
+    {
+        LogError( ( "_Cellular_CheckLibraryStatus failed" ) );
+    }
+    else if( ( pBandScanPriorityList == NULL ) || ( pBandScanPriorityList->count == 0 ) ||
+        ( pBandScanPriorityList->count > CELLULAR_BAND_SCAN_PRIORITY_LIST_MAX_SIZE ) )
+    {
+        LogError( ( "_SetBandScanPriorityList: band scan priority list invalid." ) );
+        cellularStatus = CELLULAR_BAD_PARAMETER;
+    }
+    else
+    {
+        /* Form the AT command. */
+        strncpy( cmdBuf, "AT+QCFG=\"lte/bandprior\",", sizeof( cmdBuf ) );
+        cmdBuf[ sizeof( cmdBuf ) - 1 ] = '\0';  /* ensure null terminated string */
+        currentStringLength = strnlen( cmdBuf, sizeof( cmdBuf ) );
+        if( currentStringLength < sizeof( cmdBuf ) - 1 )   /* need room for null terminator */
+        {
+            buildResult = Cellular_BuildBandScanPriorityListString(
+                    pBandScanPriorityList,
+                    &cmdBuf[ currentStringLength ],
+                    sizeof( cmdBuf ) - currentStringLength );
+            if( buildResult == CELLULAR_SUCCESS )
+            {
+                LogDebug( ( "_SetBandScanPriorityList: Set band scan priority list command: %s", cmdBuf ) );
+                pktStatus = _Cellular_AtcmdRequestWithCallback( pContext, atReqSetBandScanPriorityList );
+            }
+            else
+            {
+                LogError( ( "_SetBandScanPriorityList: couldn't build band scan priority list string, err: %d",
+                            buildResult ) );
+                pktStatus = CELLULAR_PKT_STATUS_SIZE_MISMATCH;
+            }
+        }
+        else
+        {
+            pktStatus = CELLULAR_PKT_STATUS_SIZE_MISMATCH;
+        }
+
+        if( pktStatus != CELLULAR_PKT_STATUS_OK )
+        {
+            LogError( ( "_SetBandScanPriorityList: couldn't send band scan priority list, err: %d",
+                        pktStatus ) );
+            cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
+        }
     }
 
     return cellularStatus;

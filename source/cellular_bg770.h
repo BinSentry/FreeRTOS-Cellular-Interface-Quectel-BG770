@@ -63,6 +63,10 @@
 
 #define PSM_VERSION_BIT_MASK               ( 0b00001111u )
 
+#include <cellular_types.h>
+#include "cellular_platform.h"
+#include "cellular_common.h"
+
 /**
  * @brief DNS query result.
  */
@@ -73,6 +77,13 @@ typedef enum cellularDnsQueryResult
     CELLULAR_DNS_QUERY_MAX,
     CELLULAR_DNS_QUERY_UNKNOWN
 } cellularDnsQueryResult_t;
+
+typedef enum CellularModuleFullInitSkippedResult
+{
+    CELLULAR_FULL_INIT_SKIPPED_RESULT_YES,
+    CELLULAR_FULL_INIT_SKIPPED_RESULT_NO,
+    CELLULAR_FULL_INIT_SKIPPED_RESULT_ERROR     /* Error caused yes/no result to be irrelevant */
+} CellularModuleFullInitSkippedResult_t;
 
 typedef struct cellularModuleContext cellularModuleContext_t;
 
@@ -114,6 +125,32 @@ extern uint32_t CellularSrcTokenSuccessTableSize;
 
 extern const char * CellularUrcTokenWoPrefixTable[];
 extern uint32_t CellularUrcTokenWoPrefixTableSize;
+
+/**
+ * @brief Set whether to skip all configuration of the BG770 that occurs after the H/W flow control setting if the
+ *        H/W flow control setting changed.
+ *        NOTE: Not thread safe, expected to be called when Cellular_Init() is not running, ideally from the same thread.
+ *
+ * @param[in] skipPostHWFlowControlSetupIfChanged Boolean of whether to skip all setup after setting H/W flow control
+ *                                                mode if flow control mode changed.
+ *
+ * @return CELLULAR_SUCCESS if the operation is successful, otherwise an error
+ * code indicating the cause of the error.
+ */
+CellularError_t CellularModule_SkipInitializationPostHWFlowControlSetupIfChanged(
+        bool skipPostHWFlowControlSetupIfChanged);
+
+/**
+ * @brief Retrieve whether post H/W flow control initialization was skipped.
+ *        NOTE: Not thread safe, expected to be called when Cellular_Init() is not running, ideally from the same thread.
+ *
+ * @param[out] pSkippedResult pointer to memory to place result.
+ *
+ * @return CELLULAR_SUCCESS if the operation is successful, otherwise an error
+ * code indicating the cause of the error.
+ */
+CellularError_t CellularModule_TryGetDidSkipInitializationPostHWFlowControlSetup(
+        CellularModuleFullInitSkippedResult_t * pSkippedResult);
 
 /* *INDENT-OFF* */
 #ifdef __cplusplus
