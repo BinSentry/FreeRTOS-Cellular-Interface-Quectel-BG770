@@ -732,6 +732,49 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
         {
             vTaskDelay( SHORT_DELAY_ticks );
 
+            /* NOTE: Command may fail the first time a new different SIM card is inserted (eg. Soracom -> Verizon or Verizon -> Soracom),
+             *       therefore, it is important that Cellular_Init() be tried more than once. */
+            BG770UEFunctionalityLevel_t ueFunctionalityLevel = BG770_UE_FUNCTIONALITY_LEVEL_UNKNOWN;
+            cellularStatus = _GetUEFunctionalityLevelWithRetryTimeout(
+                    pContext, &ueFunctionalityLevel, ENABLE_MODULE_UE_RETRY_TIMEOUT_MS,
+                    ENABLE_MODULE_UE_RETRY_EXP_BACKOFF_INTER_COMMAND_BASE_MS );
+            if( cellularStatus != CELLULAR_SUCCESS ||
+                DESIRED_UE_ENABLE_FUNCTIONALITY_LEVEL != ueFunctionalityLevel )
+            {
+                if( cellularStatus != CELLULAR_SUCCESS )
+                {
+                    LogError( ( "Cellular_ModuleEnableUE: Could not get UE functionality level, assuming not already set." ) );
+                }
+
+                cellularStatus = setRetryableSettingWithTimeoutParams(
+                        _SetDesiredUEFunctionalityLevel, pContext, ENABLE_MODULE_UE_RETRY_TIMEOUT_MS,
+                        ENABLE_MODULE_UE_RETRY_EXP_BACKOFF_INTER_COMMAND_BASE_MS );
+                if( cellularStatus == CELLULAR_SUCCESS )
+                {
+                    LogInfo( ( "Cellular_ModuleEnableUE: Set UE functionality level (%d) command success.", DESIRED_UE_ENABLE_FUNCTIONALITY_LEVEL ) );
+                }
+                else
+                {
+                    LogError( ( "Cellular_ModuleEnableUE: Set UE functionality level (%d) command failure (err: %s [%d]), current level: %d.",
+                                DESIRED_UE_ENABLE_FUNCTIONALITY_LEVEL,
+                                getCellularErrorString(cellularStatus), cellularStatus,
+                                ueFunctionalityLevel ) );
+                }
+            }
+            else
+            {
+                LogInfo( ( "Cellular_ModuleEnableUE: Set UE functionality level (%d) command skipped, already set.", DESIRED_UE_ENABLE_FUNCTIONALITY_LEVEL ) );
+            }
+        }
+        else
+        {
+            LogWarn( ( "Cellular_ModuleEnableUE: Skipped Set RF off / SIM enabled due to error." ) );
+        }
+
+        if( cellularStatus == CELLULAR_SUCCESS )
+        {
+            vTaskDelay( SHORT_DELAY_ticks );
+
             BG770URCIndicationOptionType_t urcIndicationOptionType = BG770_URC_INDICATION_OPTION_UNKNOWN;
             CellularError_t getURCIndicationOptionStatus = _GetURCIndicationOptionWithRetryTimeout(
                     pContext, &urcIndicationOptionType, ENABLE_MODULE_UE_RETRY_TIMEOUT_MS,
@@ -941,49 +984,6 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
         else
         {
             LogWarn( ( "Cellular_ModuleEnableUE: Network scan RAT list skipped due to error." ) );
-        }
-
-        if( cellularStatus == CELLULAR_SUCCESS )
-        {
-            vTaskDelay( SHORT_DELAY_ticks );
-
-            /* NOTE: Command may fail the first time a new different SIM card is inserted (eg. Soracom -> Verizon or Verizon -> Soracom),
-             *       therefore, it is important that Cellular_Init() be tried more than once. */
-            BG770UEFunctionalityLevel_t ueFunctionalityLevel = BG770_UE_FUNCTIONALITY_LEVEL_UNKNOWN;
-            cellularStatus = _GetUEFunctionalityLevelWithRetryTimeout(
-                    pContext, &ueFunctionalityLevel, ENABLE_MODULE_UE_RETRY_TIMEOUT_MS,
-                    ENABLE_MODULE_UE_RETRY_EXP_BACKOFF_INTER_COMMAND_BASE_MS );
-            if( cellularStatus != CELLULAR_SUCCESS ||
-                DESIRED_UE_ENABLE_FUNCTIONALITY_LEVEL != ueFunctionalityLevel )
-            {
-                if( cellularStatus != CELLULAR_SUCCESS )
-                {
-                    LogError( ( "Cellular_ModuleEnableUE: Could not get UE functionality level, assuming not already set." ) );
-                }
-
-                cellularStatus = setRetryableSettingWithTimeoutParams(
-                        _SetDesiredUEFunctionalityLevel, pContext, ENABLE_MODULE_UE_RETRY_TIMEOUT_MS,
-                        ENABLE_MODULE_UE_RETRY_EXP_BACKOFF_INTER_COMMAND_BASE_MS );
-                if( cellularStatus == CELLULAR_SUCCESS )
-                {
-                    LogInfo( ( "Cellular_ModuleEnableUE: Set UE functionality level (%d) command success.", DESIRED_UE_ENABLE_FUNCTIONALITY_LEVEL ) );
-                }
-                else
-                {
-                    LogError( ( "Cellular_ModuleEnableUE: Set UE functionality level (%d) command failure (err: %s [%d]), current level: %d.",
-                                DESIRED_UE_ENABLE_FUNCTIONALITY_LEVEL,
-                                getCellularErrorString(cellularStatus), cellularStatus,
-                                ueFunctionalityLevel ) );
-                }
-            }
-            else
-            {
-                LogInfo( ( "Cellular_ModuleEnableUE: Set UE functionality level (%d) command skipped, already set.", DESIRED_UE_ENABLE_FUNCTIONALITY_LEVEL ) );
-            }
-        }
-        else
-        {
-            LogWarn( ( "Cellular_ModuleEnableUE: Skipped Set RF off / SIM enabled due to error." ) );
         }
 
         if( cellularStatus == CELLULAR_SUCCESS )
