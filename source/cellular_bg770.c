@@ -1073,8 +1073,10 @@ CellularError_t Cellular_ModuleEnableUrc( CellularContext_t * pContext )
     ( void ) _Cellular_AtcmdRequestWithCallback( pContext, atReqGetNoResult );
 
     /* Enable PSM URC reporting by unsolicited result code +QPSMTIMER: <TAU_timer>,<T3324_timer> */
+    /* // TODO (MV): Enable when PSM used
     atReqGetNoResult.pAtCmd = "AT+QCFG=\"psm/urc\",1";
     ( void ) _Cellular_AtcmdRequestWithCallback( pContext, atReqGetNoResult );
+    */
 
     return cellularStatus;
 }
