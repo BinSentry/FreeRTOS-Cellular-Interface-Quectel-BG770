@@ -267,8 +267,8 @@ static bool tryBuildRATScanSequenceString( const BG770RATScanSequence_t * pRATSc
 
 static cellularModuleContext_t cellularBg770Context = { 0 };
 
-static bool configSkipPostHWFlowControlSetupIfChanged = false;
-static CellularModuleFullInitSkippedResult_t fullInitSkippedResult = CELLULAR_FULL_INIT_SKIPPED_RESULT_ERROR;
+static volatile bool configSkipPostHWFlowControlSetupIfChanged = false;
+static volatile CellularModuleFullInitSkippedResult_t fullInitSkippedResult = CELLULAR_FULL_INIT_SKIPPED_RESULT_ERROR;
 
 /* FreeRTOS Cellular Common Library porting interface. */
 /* coverity[misra_c_2012_rule_8_7_violation] */
@@ -697,6 +697,12 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
                 {
                     LogError( ( "Cellular_ModuleEnableUE: Could not get hardware flow control state, assuming not already set." ) );
                 }
+                else
+                {
+                    LogInfo( ( "Cellular_ModuleEnableUE: H/W flow control state, cur:{dceByDTE: %d, dteByDCE: %d }, desired: { dceByDTE: %d, dteByDCE: %d }.",
+                               flowControlState.dceByDTE, flowControlState.dteByDCE,
+                               desiredFlowControlState.dceByDTE, desiredFlowControlState.dteByDCE) );
+                }
 
                 /**< No retry, even if miss 'OK' the flow control may have changed */
                 cellularStatus = _SetFlowControlState( pContext, desiredFlowControlState );
@@ -709,6 +715,8 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
                         fullInitSkippedResult = CELLULAR_FULL_INIT_SKIPPED_RESULT_YES;
                         return cellularStatus;
                     }
+
+                    fullInitSkippedResult = CELLULAR_FULL_INIT_SKIPPED_RESULT_NO;
                 }
                 else
                 {
