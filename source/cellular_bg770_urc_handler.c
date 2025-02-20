@@ -63,6 +63,14 @@ static void _Cellular_ProcessPSMTimerurc(CellularContext_t * pContext,
 static void _Cellular_ProcessPsmPowerDown( CellularContext_t * pContext,
                                            char * pInputLine );
 
+// simple wrapper to get rid of return value
+static void _Cellular_ProcessCereg( CellularContext_t * pContext,
+                                    char * pInputLine );
+
+// simple wrapper to get rid of return value
+static void _Cellular_ProcessCreg( CellularContext_t * pContext,
+                                   char * pInputLine );
+
 /*-----------------------------------------------------------*/
 
 /* Try to Keep this map in Alphabetical order. */
@@ -71,8 +79,8 @@ static void _Cellular_ProcessPsmPowerDown( CellularContext_t * pContext,
 CellularAtParseTokenMap_t CellularUrcHandlerTable[] =
 {
     { "APP RDY",      _Cellular_ProcessModemAppRdy    },
-    { "CEREG",        Cellular_CommonUrcProcessCereg  },
-    { "CREG",         Cellular_CommonUrcProcessCreg   },
+    { "CEREG",        _Cellular_ProcessCereg          },
+    { "CREG",         _Cellular_ProcessCreg           },
     { "NORMAL POWER DOWN", _Cellular_ProcessPowerDown },
     { "POWERED DOWN", _Cellular_ProcessPowerDown      },
     { "PSM POWER DOWN", _Cellular_ProcessPsmPowerDown },
@@ -891,6 +899,24 @@ static void _Cellular_ProcessPsmPowerDown( CellularContext_t * pContext,
         LogDebug( ( "_Cellular_ProcessPsmPowerDown: Modem PSM power down event received" ) );
         _Cellular_ModemEventCallback( pContext, CELLULAR_MODEM_EVENT_PSM_ENTER );
     }
+}
+
+/*-----------------------------------------------------------*/
+
+static void _Cellular_ProcessCereg( CellularContext_t * pContext,
+                                    char * pInputLine )
+{
+    // FUTURE: Handle return value?
+    Cellular_CommonUrcProcessCereg( pContext, pInputLine );
+}
+
+/*-----------------------------------------------------------*/
+
+static void _Cellular_ProcessCreg( CellularContext_t * pContext,
+                                   char * pInputLine )
+{
+    // FUTURE: Handle return value?
+    Cellular_CommonUrcProcessCreg( pContext, pInputLine );
 }
 
 /*-----------------------------------------------------------*/
