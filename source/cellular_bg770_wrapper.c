@@ -110,6 +110,23 @@ CellularError_t Cellular_ATCommandRaw( CellularHandle_t cellularHandle,
 
 /* FreeRTOS Cellular Library API. */
 /* coverity[misra_c_2012_rule_8_7_violation] */
+CellularError_t Cellular_ATCommandRawTimeout( CellularHandle_t cellularHandle,
+                                       const char * pATCommandPrefix,
+                                       const char * pATCommandPayload,
+                                       CellularATCommandType_t atCommandType,
+                                       CellularATCommandResponseReceivedCallback_t responseReceivedCallback,
+                                       void * pData,
+                                       uint16_t dataLen,
+                                       uint32_t timeoutMS )
+{
+    return Cellular_CommonATCommandRawTimeout( cellularHandle, pATCommandPrefix, pATCommandPayload, atCommandType,
+                                               responseReceivedCallback, pData, dataLen, timeoutMS );
+}
+
+/*-----------------------------------------------------------*/
+
+/* FreeRTOS Cellular Library API. */
+/* coverity[misra_c_2012_rule_8_7_violation] */
 CellularError_t Cellular_CreateSocket( CellularHandle_t cellularHandle,
                                        uint8_t pdnContextId,
                                        CellularSocketDomain_t socketDomain,
