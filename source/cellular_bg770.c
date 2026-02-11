@@ -1062,6 +1062,8 @@ CellularError_t Cellular_ModuleEnableUrc( CellularContext_t * pContext )
 
     /* FUTURE: Turn all of these commands into read before write */
 
+    // TODO (MV): Make these indicate error if occurs
+
     /* Set numeric operator format. */
     atReqGetNoResult.pAtCmd = "AT+COPS=3,2";
     ( void ) _Cellular_AtcmdRequestWithCallback( pContext, atReqGetNoResult );
@@ -1083,8 +1085,7 @@ CellularError_t Cellular_ModuleEnableUrc( CellularContext_t * pContext )
     ( void ) _Cellular_AtcmdRequestWithCallback( pContext, atReqGetNoResult );
 
     /* Disable PSM URC reporting by unsolicited result code +QPSMTIMER: <TAU_timer>,<T3324_timer> */
-    /* FUTURE: Enable (1) when PSM used */
-    atReqGetNoResult.pAtCmd = "AT+QCFG=\"psm/urc\",0";
+    atReqGetNoResult.pAtCmd = "AT+QCFG=\"psm/urc\",1";  // TODO (MV): Fix this
     ( void ) _Cellular_AtcmdRequestWithCallback( pContext, atReqGetNoResult );
 
     return cellularStatus;
