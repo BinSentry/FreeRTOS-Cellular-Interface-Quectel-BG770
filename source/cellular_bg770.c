@@ -41,7 +41,6 @@
 /*-----------------------------------------------------------*/
 
 #define ENABLE_MODULE_UE_RETRY_COUNT       ( 4U )
-#define ENABLE_MODULE_UE_RETRY_TIMEOUT_MS   ( 18000U )   /* observed at least 17113 ms */
 #define ENABLE_MODULE_UE_RETRY_EXP_BACKOFF_INTER_COMMAND_BASE_MS    ( 1000UL )
 #define BG770_NWSCANSEQ_CMD_MAX_SIZE       ( 30U ) /* Need at least the length of AT+QCFG="nwscanseq",020301,1\0. */
 
@@ -98,14 +97,6 @@ typedef struct BG770FlowControlState
     BG770FlowControlType_t dceByDTE;        /**< RTS if hardware flow control. */
     BG770FlowControlType_t dteByDCE;        /**< CTS if hardware flow control. */
 } BG770FlowControlState_t;
-
-typedef enum BG770UEFunctionalityLevel
-{
-    BG770_UE_FUNCTIONALITY_LEVEL_MINIMUM = 0,     /**< RF front-end and SIM card disabled */
-    BG770_UE_FUNCTIONALITY_LEVEL_FULL = 1,        /**< RF front-end and SIM card enabled */
-    BG770_UE_FUNCTIONALITY_LEVEL_SIM_ONLY = 4,    /**< RF front-end disabled and SIM card enabled */
-    BG770_UE_FUNCTIONALITY_LEVEL_UNKNOWN,         /**< Unknown/unsupported functionality type. */
-} BG770UEFunctionalityLevel_t;
 
 static const char *const UE_FUNC_LEVEL_MINIMUM_STRING = "0";
 static const char *const UE_FUNC_LEVEL_FULL_STRING = "1";
@@ -209,10 +200,6 @@ static CellularError_t _GetFlowControlStateWithRetryTimeout( CellularHandle_t ce
 
 static CellularError_t _SetFlowControlState( CellularHandle_t cellularHandle,
                                              BG770FlowControlState_t flowControlState );
-
-static CellularError_t _GetUEFunctionalityLevel( CellularHandle_t cellularHandle,
-                                                 BG770UEFunctionalityLevel_t * pUEFunctionalityLevel,
-                                                 uint32_t commandTimeoutMS );
 
 static CellularError_t _GetUEFunctionalityLevelWithRetryTimeout( CellularHandle_t cellularHandle,
                                                                  BG770UEFunctionalityLevel_t * pUEFunctionalityLevel,
@@ -746,33 +733,39 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
             cellularStatus = _GetUEFunctionalityLevelWithRetryTimeout(
                     pContext, &ueFunctionalityLevel, ENABLE_MODULE_UE_RETRY_TIMEOUT_MS,
                     ENABLE_MODULE_UE_RETRY_EXP_BACKOFF_INTER_COMMAND_BASE_MS );
-            if( cellularStatus != CELLULAR_SUCCESS ||
-                DESIRED_UE_ENABLE_FUNCTIONALITY_LEVEL != ueFunctionalityLevel )
+            if( cellularStatus == CELLULAR_SUCCESS )
             {
-                if( cellularStatus != CELLULAR_SUCCESS )
-                {
-                    LogError( ( "Cellular_ModuleEnableUE: Could not get UE functionality level, assuming not already set." ) );
-                }
+                LogInfo( ( "Cellular_ModuleEnableUE: UE functionality level (%d) on boot.", ueFunctionalityLevel ) );
+            }
 
-                cellularStatus = setRetryableSettingWithTimeoutParams(
-                        _SetDesiredUEFunctionalityLevel, pContext, ENABLE_MODULE_UE_RETRY_TIMEOUT_MS,
-                        ENABLE_MODULE_UE_RETRY_EXP_BACKOFF_INTER_COMMAND_BASE_MS );
-                if( cellularStatus == CELLULAR_SUCCESS )
-                {
-                    LogInfo( ( "Cellular_ModuleEnableUE: Set UE functionality level (%d) command success.", DESIRED_UE_ENABLE_FUNCTIONALITY_LEVEL ) );
-                }
-                else
-                {
-                    LogError( ( "Cellular_ModuleEnableUE: Set UE functionality level (%d) command failure (err: %s [%d]), current level: %d.",
-                                DESIRED_UE_ENABLE_FUNCTIONALITY_LEVEL,
-                                getCellularErrorString(cellularStatus), cellularStatus,
-                                ueFunctionalityLevel ) );
-                }
-            }
-            else
-            {
-                LogInfo( ( "Cellular_ModuleEnableUE: Set UE functionality level (%d) command skipped, already set.", DESIRED_UE_ENABLE_FUNCTIONALITY_LEVEL ) );
-            }
+            // TODO (MV): Fix this
+            // if( cellularStatus != CELLULAR_SUCCESS ||
+            //     DESIRED_UE_ENABLE_FUNCTIONALITY_LEVEL != ueFunctionalityLevel )
+            // {
+            //     if( cellularStatus != CELLULAR_SUCCESS )
+            //     {
+            //         LogError( ( "Cellular_ModuleEnableUE: Could not get UE functionality level, assuming not already set." ) );
+            //     }
+            //
+            //     cellularStatus = setRetryableSettingWithTimeoutParams(
+            //             _SetDesiredUEFunctionalityLevel, pContext, ENABLE_MODULE_UE_RETRY_TIMEOUT_MS,
+            //             ENABLE_MODULE_UE_RETRY_EXP_BACKOFF_INTER_COMMAND_BASE_MS );
+            //     if( cellularStatus == CELLULAR_SUCCESS )
+            //     {
+            //         LogInfo( ( "Cellular_ModuleEnableUE: Set UE functionality level (%d) command success.", DESIRED_UE_ENABLE_FUNCTIONALITY_LEVEL ) );
+            //     }
+            //     else
+            //     {
+            //         LogError( ( "Cellular_ModuleEnableUE: Set UE functionality level (%d) command failure (err: %s [%d]), current level: %d.",
+            //                     DESIRED_UE_ENABLE_FUNCTIONALITY_LEVEL,
+            //                     getCellularErrorString(cellularStatus), cellularStatus,
+            //                     ueFunctionalityLevel ) );
+            //     }
+            // }
+            // else
+            // {
+            //     LogInfo( ( "Cellular_ModuleEnableUE: Set UE functionality level (%d) command skipped, already set.", DESIRED_UE_ENABLE_FUNCTIONALITY_LEVEL ) );
+            // }
         }
         else
         {
@@ -1075,7 +1068,9 @@ CellularError_t Cellular_ModuleEnableUrc( CellularContext_t * pContext )
     ( void ) _Cellular_AtcmdRequestWithCallback( pContext, atReqGetNoResult );
 
     /* Enable LTE network registration and location information unsolicited result code:
-        +CEREG: <stat>[,[<tac>],[<ci>],[<AcT>]]
+     // TODO (MV): Finish this
+    +CEREG: <n>,<stat>[,[<tac>],[<ci>],[<AcT>[,<cause_type>,<reject_cause>]]]
+    +CEREG: <n>,<stat>[,[<tac>],[<ci>],[<AcT>[,<cause_type>,<reject_cause>]]]
      */
     atReqGetNoResult.pAtCmd = "AT+CEREG=2";
     ( void ) _Cellular_AtcmdRequestWithCallback( pContext, atReqGetNoResult );
@@ -1084,7 +1079,7 @@ CellularError_t Cellular_ModuleEnableUrc( CellularContext_t * pContext )
     atReqGetNoResult.pAtCmd = "AT+CTZR=1";
     ( void ) _Cellular_AtcmdRequestWithCallback( pContext, atReqGetNoResult );
 
-    /* Disable PSM URC reporting by unsolicited result code +QPSMTIMER: <TAU_timer>,<T3324_timer> */
+    /* Enable PSM URC reporting by unsolicited result code +QPSMTIMER: <TAU_timer>,<T3324_timer> */
     atReqGetNoResult.pAtCmd = "AT+QCFG=\"psm/urc\",1";  // TODO (MV): Fix this
     ( void ) _Cellular_AtcmdRequestWithCallback( pContext, atReqGetNoResult );
 
@@ -1954,7 +1949,7 @@ static CellularError_t _GetUEFunctionalityLevelWithRetryTimeout( CellularHandle_
                 vTaskDelay( pdMS_TO_TICKS( exponentialBackoffInterCommandBaseMS * (uint32_t)tryCount * tryCount ) );
             }
 
-            cellularStatus = _GetUEFunctionalityLevel( cellularHandle, pUEFunctionalityLevel, commandTimeoutMS );
+            cellularStatus = CellularModule_GetUEFunctionalityLevel( cellularHandle, pUEFunctionalityLevel, commandTimeoutMS );
 
             if( cellularStatus == CELLULAR_SUCCESS )
             {
@@ -1966,9 +1961,9 @@ static CellularError_t _GetUEFunctionalityLevelWithRetryTimeout( CellularHandle_
     return cellularStatus;
 }
 
-static CellularError_t _GetUEFunctionalityLevel( CellularHandle_t cellularHandle,
-                                                 BG770UEFunctionalityLevel_t *const pUEFunctionalityLevel,
-                                                 uint32_t commandTimeoutMS )
+CellularError_t CellularModule_GetUEFunctionalityLevel( CellularHandle_t cellularHandle,
+                                                        BG770UEFunctionalityLevel_t *const pUEFunctionalityLevel,
+                                                        uint32_t commandTimeoutMS )
 {
     CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
@@ -2006,7 +2001,7 @@ static CellularError_t _GetUEFunctionalityLevel( CellularHandle_t cellularHandle
 
 static CellularError_t _SetDesiredUEFunctionalityLevel( CellularHandle_t cellularHandle, uint32_t commandTimeoutMS )
 {
-    return _SetUEFunctionalityLevel( cellularHandle, DESIRED_UE_ENABLE_FUNCTIONALITY_LEVEL, commandTimeoutMS );
+    return _SetUEFunctionalityLevel( cellularHandle, DESIRED_UE_ENABLE_FUNCTIONALITY_LEVEL, commandTimeoutMS );     // TODO (MV): Need to no longer do this here? Be smarter about whether in PSM or eDRX and not do this
 }
 
 static CellularError_t _SetUEFunctionalityLevel( CellularHandle_t cellularHandle,

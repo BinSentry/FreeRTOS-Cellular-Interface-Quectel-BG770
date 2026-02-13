@@ -63,6 +63,8 @@
 
 #define PSM_VERSION_BIT_MASK               ( 0b00001111u )
 
+#define ENABLE_MODULE_UE_RETRY_TIMEOUT_MS   ( 18000U )   /* observed at least 17113 ms */
+
 #include <cellular_types.h>
 #include "cellular_platform.h"
 #include "cellular_common.h"
@@ -84,6 +86,14 @@ typedef enum CellularModuleFullInitSkippedResult
     CELLULAR_FULL_INIT_SKIPPED_RESULT_NO,
     CELLULAR_FULL_INIT_SKIPPED_RESULT_ERROR     /* Error caused yes/no result to be irrelevant */
 } CellularModuleFullInitSkippedResult_t;
+
+typedef enum BG770UEFunctionalityLevel
+{
+    BG770_UE_FUNCTIONALITY_LEVEL_MINIMUM = 0,     /**< RF front-end and SIM card disabled */
+    BG770_UE_FUNCTIONALITY_LEVEL_FULL = 1,        /**< RF front-end and SIM card enabled */
+    BG770_UE_FUNCTIONALITY_LEVEL_SIM_ONLY = 4,    /**< RF front-end disabled and SIM card enabled */
+    BG770_UE_FUNCTIONALITY_LEVEL_UNKNOWN,         /**< Unknown/unsupported functionality type. */
+} BG770UEFunctionalityLevel_t;
 
 typedef struct cellularModuleContext cellularModuleContext_t;
 
@@ -151,6 +161,10 @@ CellularError_t CellularModule_SkipInitializationPostHWFlowControlSetupIfChanged
  */
 CellularError_t CellularModule_TryGetDidSkipInitializationPostHWFlowControlSetup(
         CellularModuleFullInitSkippedResult_t * pSkippedResult);
+
+CellularError_t CellularModule_GetUEFunctionalityLevel( CellularHandle_t cellularHandle,
+                                                        BG770UEFunctionalityLevel_t * pUEFunctionalityLevel,
+                                                        uint32_t commandTimeoutMS );
 
 /* *INDENT-OFF* */
 #ifdef __cplusplus

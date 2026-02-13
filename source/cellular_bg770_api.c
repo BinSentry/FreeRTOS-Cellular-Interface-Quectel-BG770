@@ -4103,6 +4103,59 @@ CellularError_t Cellular_GetPdnStatus( CellularHandle_t cellularHandle,
 
 /*-----------------------------------------------------------*/
 
+CellularError_t Cellular_GetRfFunctionality( CellularHandle_t cellularHandle,
+                                             CellularRfFunctionality_t * pRfFunctionality )
+{
+    CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+    BG770UEFunctionalityLevel_t ueFunctionalityLevel = BG770_UE_FUNCTIONALITY_LEVEL_UNKNOWN;
+
+    /* pContext is checked in _Cellular_CheckLibraryStatus function. */
+    cellularStatus = _Cellular_CheckLibraryStatus( pContext );
+
+    if( cellularStatus != CELLULAR_SUCCESS )
+    {
+        LogDebug( ( "_Cellular_CheckLibraryStatus failed" ) );
+    }
+    else if( pRfFunctionality == NULL )
+    {
+        cellularStatus = CELLULAR_BAD_PARAMETER;
+    }
+    else
+    {
+        cellularStatus = CellularModule_GetUEFunctionalityLevel( cellularHandle,
+                                                                 &ueFunctionalityLevel,
+                                                                 ENABLE_MODULE_UE_RETRY_TIMEOUT_MS );
+        if( cellularStatus == CELLULAR_SUCCESS )
+        {
+            switch( ueFunctionalityLevel )
+            {
+                case BG770_UE_FUNCTIONALITY_LEVEL_MINIMUM:
+                    *pRfFunctionality = CELLULAR_RF_FUNCTIONALITY_OFF;
+                    break;
+
+                case BG770_UE_FUNCTIONALITY_LEVEL_FULL:
+                    *pRfFunctionality = CELLULAR_RF_FUNCTIONALITY_ON;
+                    break;
+
+                case BG770_UE_FUNCTIONALITY_LEVEL_SIM_ONLY:
+                    *pRfFunctionality = CELLULAR_RF_FUNCTIONALITY_SIM_ONLY;
+                    break;
+
+                default:
+                    debugASSERT(false);
+                case BG770_UE_FUNCTIONALITY_LEVEL_UNKNOWN:
+                    cellularStatus = CELLULAR_INTERNAL_FAILURE;
+                    break;
+            }
+        }
+    }
+
+    return cellularStatus;
+}
+
+/*-----------------------------------------------------------*/
+
 /* FreeRTOS Cellular Library API. */
 /* coverity[misra_c_2012_rule_8_7_violation] */
 CellularError_t Cellular_GetSimCardStatus( CellularHandle_t cellularHandle,
@@ -6786,7 +6839,7 @@ CellularError_t Cellular_SetServiceSelection( CellularHandle_t cellularHandle,
 
             if( pktStatus != CELLULAR_PKT_STATUS_OK )
             {
-                LogError( ( "Cellular_SetServiceSelection: couldn't send service selection" ) );
+                LogError( ( "Cellular_SetServiceSelection: couldn't send service selection" ) );    // TODO (MV): Add error
                 cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
             }
         }
