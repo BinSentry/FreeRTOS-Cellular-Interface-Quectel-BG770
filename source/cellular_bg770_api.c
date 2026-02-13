@@ -85,11 +85,19 @@
 #define PRINTF_BYTE_TO_BINARY_INT8( i ) \
     PRINTF_BYTE_TO_BINARY_INT4( ( i ) >> 4 ), PRINTF_BYTE_TO_BINARY_INT4( i )
 
+/* Network PSM settings */
 #define QPSMS_POS_MODE                           ( 0U )
 #define QPSMS_POS_RAU                            ( 1U )
 #define QPSMS_POS_RDY_TIMER                      ( 2U )
 #define QPSMS_POS_TAU                            ( 3U )
 #define QPSMS_POS_ACTIVE_TIME                    ( 4U )
+
+/* Requested PSM settings */
+#define CPSMS_POS_MODE                           ( 0U )
+#define CPSMS_POS_RAU                            ( 1U )
+#define CPSMS_POS_RDY_TIMER                      ( 2U )
+#define CPSMS_POS_TAU                            ( 3U )
+#define CPSMS_POS_ACTIVE_TIME                    ( 4U )
 
 #define CELLULAR_PDN_STATUS_POS_CONTEXT_ID       ( 0U )
 #define CELLULAR_PDN_STATUS_POS_CONTEXT_STATE    ( 1U )
@@ -223,6 +231,19 @@ static CellularATError_t parseQpsmsActiveTime( char * pToken,
 static CellularATError_t parseGetPsmToken( char * pToken,
                                            uint8_t tokenIndex,
                                            CellularPsmSettings_t * pPsmSettings );
+static CellularATError_t parseCpsmsMode( char * pToken,
+                                         CellularPsmSettings_t * pPsmSettings );
+static CellularATError_t parseCpsmsRau( char * pToken,
+                                        CellularPsmSettings_t * pPsmSettings );
+static CellularATError_t parseCpsmsRdyTimer( char * pToken,
+                                             CellularPsmSettings_t * pPsmSettings );
+static CellularATError_t parseCpsmsTau( char * pToken,
+                                        CellularPsmSettings_t * pPsmSettings );
+static CellularATError_t parseCpsmsActiveTime( char * pToken,
+                                               CellularPsmSettings_t * pPsmSettings );
+static CellularATError_t parseGetRequestedPsmToken( char * pToken,
+                                                    uint8_t tokenIndex,
+                                                    CellularPsmSettings_t * pPsmSettings );
 static CellularRat_t convertRatPriority( char * pRatString );
 static CellularPktStatus_t _Cellular_RecvFuncGetRatPriority( CellularContext_t * pContext,
                                                              const CellularATCommandResponse_t * pAtResp,
@@ -1756,6 +1777,117 @@ static CellularATError_t parseGetPsmToken( char * pToken,
 
 /*-----------------------------------------------------------*/
 
+static CellularATError_t parseCpsmsMode( char * pToken,
+                                         CellularPsmSettings_t * pPsmSettings )
+{
+    return parseQpsmsMode( pToken, pPsmSettings );
+}
+
+/*-----------------------------------------------------------*/
+
+static CellularATError_t parseCpsmsRau( char * pToken,
+                                        CellularPsmSettings_t * pPsmSettings )
+{
+    return parseQpsmsRau( pToken, pPsmSettings );
+}
+
+/*-----------------------------------------------------------*/
+
+static CellularATError_t parseCpsmsRdyTimer( char * pToken,
+                                             CellularPsmSettings_t * pPsmSettings )
+{
+    return parseQpsmsRdyTimer( pToken, pPsmSettings );
+}
+
+/*-----------------------------------------------------------*/
+
+static CellularATError_t parseCpsmsTau( char * pToken,
+                                        CellularPsmSettings_t * pPsmSettings )
+{
+    int32_t tempValue = 0;
+    CellularATError_t atCoreStatus = Cellular_ATStrtoi( pToken, 2, &tempValue );
+
+    if( atCoreStatus == CELLULAR_AT_SUCCESS )
+    {
+        if( ( tempValue >= 0 ) && ( tempValue <= UINT8_MAX ) )
+        {
+            pPsmSettings->periodicTauValue = ( uint32_t ) tempValue;
+        }
+        else
+        {
+            LogError( ( "Error in processing Requested Periodic TAU value value. Token %s", pToken ) );
+            atCoreStatus = CELLULAR_AT_ERROR;
+        }
+    }
+
+    return atCoreStatus;
+}
+
+/*-----------------------------------------------------------*/
+
+static CellularATError_t parseCpsmsActiveTime( char * pToken,
+                                               CellularPsmSettings_t * pPsmSettings )
+{
+    int32_t tempValue = 0;
+    CellularATError_t atCoreStatus = Cellular_ATStrtoi( pToken, 2, &tempValue );
+
+    if( atCoreStatus == CELLULAR_AT_SUCCESS )
+    {
+        if( ( tempValue >= 0 ) && ( tempValue <= UINT8_MAX ) )
+        {
+            pPsmSettings->activeTimeValue = ( uint32_t ) tempValue;
+        }
+        else
+        {
+            LogError( ( "Error in processing Requested Periodic Processing Active time value. Token %s", pToken ) );
+            atCoreStatus = CELLULAR_AT_ERROR;
+        }
+    }
+
+    return atCoreStatus;
+}
+
+/*-----------------------------------------------------------*/
+
+static CellularATError_t parseGetRequestedPsmToken( char * pToken,
+                                                    uint8_t tokenIndex,
+                                                    CellularPsmSettings_t * pPsmSettings )
+{
+    CellularATError_t atCoreStatus = CELLULAR_AT_SUCCESS;
+
+    switch( tokenIndex )
+    {
+        case CPSMS_POS_MODE:
+            atCoreStatus = parseCpsmsMode( pToken, pPsmSettings );
+            break;
+
+        case CPSMS_POS_RAU:
+            atCoreStatus = parseCpsmsRau( pToken, pPsmSettings );
+            break;
+
+        case CPSMS_POS_RDY_TIMER:
+            atCoreStatus = parseCpsmsRdyTimer( pToken, pPsmSettings );
+            break;
+
+        case CPSMS_POS_TAU:
+            atCoreStatus = parseCpsmsTau( pToken, pPsmSettings );
+            break;
+
+        case CPSMS_POS_ACTIVE_TIME:
+            atCoreStatus = parseCpsmsActiveTime( pToken, pPsmSettings );
+            break;
+
+        default:
+            LogDebug( ( "Unknown Parameter Position in AT+CPSMS Response" ) );
+            atCoreStatus = CELLULAR_AT_ERROR;
+            break;
+    }
+
+    return atCoreStatus;
+}
+
+/*-----------------------------------------------------------*/
+
 static CellularRat_t convertRatPriority( char * pRatString )
 {
     CellularRat_t retRat = CELLULAR_RAT_INVALID;
@@ -1931,6 +2063,95 @@ static CellularPktStatus_t _Cellular_RecvFuncGetPsmSettings( CellularContext_t *
         }
 
         LogDebug( ( "PSM setting: mode: %d, RAU: %d, RDY_Timer: %d, TAU: %d, Active_time: %d",
+                    pPsmSettings->mode,
+                    pPsmSettings->periodicRauValue,
+                    pPsmSettings->gprsReadyTimer,
+                    pPsmSettings->periodicTauValue,
+                    pPsmSettings->activeTimeValue ) );
+        pktStatus = _Cellular_TranslateAtCoreStatus( atCoreStatus );
+    }
+
+    return pktStatus;
+}
+
+/*-----------------------------------------------------------*/
+
+/* FreeRTOS Cellular Library types. */
+/* coverity[misra_c_2012_rule_8_13_violation] */
+static CellularPktStatus_t _Cellular_RecvFuncGetRequestedPsmSettings( CellularContext_t * pContext,
+                                                                      const CellularATCommandResponse_t * pAtResp,
+                                                                      void * pData,
+                                                                      uint16_t dataLen )
+{
+    char * pInputLine = NULL, * pToken = NULL;
+    uint8_t tokenIndex = 0;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    CellularATError_t atCoreStatus = CELLULAR_AT_SUCCESS;
+    CellularPsmSettings_t * pPsmSettings = NULL;
+
+    if( pContext == NULL )
+    {
+        LogError( ( "GetRequestedPsmSettings: Invalid context" ) );
+        pktStatus = CELLULAR_PKT_STATUS_FAILURE;
+    }
+    else if( ( pAtResp == NULL ) || ( pAtResp->pItm == NULL ) ||
+             ( pAtResp->pItm->pLine == NULL ) || ( pData == NULL ) || ( dataLen != sizeof( CellularPsmSettings_t ) ) )
+    {
+        LogError( ( "GetRequestedPsmSettings: Invalid param" ) );
+        pktStatus = CELLULAR_PKT_STATUS_BAD_PARAM;
+    }
+    else
+    {
+        pInputLine = pAtResp->pItm->pLine;
+        pPsmSettings = ( CellularPsmSettings_t * ) pData;
+        atCoreStatus = Cellular_ATRemovePrefix( &pInputLine );
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATRemoveAllDoubleQuote( pInputLine );
+        }
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATGetNextTok( &pInputLine, &pToken );
+        }
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            tokenIndex = 0;
+
+            while( pToken != NULL )
+            {
+                if( tokenIndex == 0 )
+                {
+                    atCoreStatus = parseGetRequestedPsmToken( pToken, tokenIndex, pPsmSettings );
+                }
+                else
+                {
+                    parseGetRequestedPsmToken( pToken, tokenIndex, pPsmSettings );
+                }
+
+                tokenIndex++;
+
+                if( *pInputLine == ',' )
+                {
+                    *pInputLine = '\0';
+                    pToken = pInputLine;
+                    *pToken = '\0';
+                    pInputLine = &pInputLine[ 1 ];
+                }
+                else if( Cellular_ATGetNextTok( &pInputLine, &pToken ) != CELLULAR_AT_SUCCESS )
+                {
+                    break;
+                }
+                else
+                {
+                    /* Empty Else MISRA 15.7 */
+                }
+            }
+        }
+
+        LogDebug( ( "Requested PSM setting: mode: %d, RAU: %d, RDY_Timer: %d, TAU: 0x%x, Active_time: 0x%x",
                     pPsmSettings->mode,
                     pPsmSettings->periodicRauValue,
                     pPsmSettings->gprsReadyTimer,
@@ -2648,6 +2869,53 @@ CellularError_t Cellular_GetPsmSettings( CellularHandle_t cellularHandle,
         if( pktStatus != CELLULAR_PKT_STATUS_OK )
         {
             LogError( ( "Cellular_GetPsmSettings: couldn't retrieve PSM settings" ) );
+            cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
+        }
+    }
+
+    return cellularStatus;
+}
+
+/*-----------------------------------------------------------*/
+
+CellularError_t Cellular_GetRequestedPsmSettings( CellularHandle_t cellularHandle,
+                                                  CellularPsmSettings_t * pPsmSettings )
+{
+    CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    CellularAtReq_t atReqGetPsm =
+    {
+        "AT+CPSMS?",
+        CELLULAR_AT_WITH_PREFIX,
+        "+CPSMS",
+        _Cellular_RecvFuncGetRequestedPsmSettings,
+        pPsmSettings,
+        sizeof( CellularPsmSettings_t ),
+    };
+
+    cellularStatus = _Cellular_CheckLibraryStatus( pContext );
+
+    if( cellularStatus != CELLULAR_SUCCESS )
+    {
+        LogDebug( ( "_Cellular_CheckLibraryStatus failed" ) );
+    }
+    else if( pPsmSettings == NULL )
+    {
+        cellularStatus = CELLULAR_BAD_PARAMETER;
+    }
+    else
+    {
+        /* initialize the data. */
+        ( void ) memset( pPsmSettings, 0, sizeof( CellularPsmSettings_t ) );
+        pPsmSettings->mode = 0xFF;
+
+        /* we should always query the PSMsettings from the network. */
+        pktStatus = _Cellular_AtcmdRequestWithCallback( pContext, atReqGetPsm );
+
+        if( pktStatus != CELLULAR_PKT_STATUS_OK )
+        {
+            LogError( ( "Cellular_GetRequestedPsmSettings: couldn't retrieve requested PSM settings" ) );
             cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
         }
     }
