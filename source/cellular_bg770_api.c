@@ -3087,9 +3087,18 @@ CellularError_t Cellular_SetPsmSettings( CellularHandle_t cellularHandle,
         /* The return value of snprintf is not used.
          * The max length of the string is fixed and checked offline. */
         /* coverity[misra_c_2012_rule_21_6_violation]. */
-        ( void ) snprintf( cmdBuf, CELLULAR_AT_CMD_MAX_SIZE, "AT+QPSMS=%d", pPsmSettings->mode );
+        if( pPsmSettings->mode == 0 )
+        {
+            ( void ) snprintf( cmdBuf, CELLULAR_AT_CMD_MAX_SIZE, "AT+QPSMS=" ); // special version of the command that disables PSM and clears the parameters
+        }
+        else
+        {
+            ( void ) snprintf( cmdBuf, CELLULAR_AT_CMD_MAX_SIZE, "AT+QPSMS=%d", pPsmSettings->mode );
+        }
+
         cmdBufLen = strlen( cmdBuf );
-        if (pPsmSettings->periodicTauValue != 0 || pPsmSettings->activeTimeValue != 0) {
+        if( pPsmSettings->mode != 0 && ( ( pPsmSettings->periodicTauValue != 0 ) || ( pPsmSettings->activeTimeValue != 0 ) ) )
+        {
             (void) strcat(cmdBuf, ",");     // FUTURE: Improve robustness of this
             cmdBufLen++;
             cmdBufLen += appendBinaryPattern(&cmdBuf[cmdBufLen], (CELLULAR_AT_CMD_MAX_SIZE - cmdBufLen), 0, false);    // NOTE: BG770 doesn't support this parameter
@@ -4417,6 +4426,34 @@ CellularError_t Cellular_GetRfFunctionality( CellularHandle_t cellularHandle,
                     break;
             }
         }
+    }
+
+    return cellularStatus;
+}
+
+/*-----------------------------------------------------------*/
+
+CellularError_t Cellular_SimAndRfOff( CellularHandle_t cellularHandle )
+{
+    CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
+    CellularError_t cellularStatus;
+    CellularPktStatus_t pktStatus;
+    CellularAtReq_t atReq = { 0 };
+
+    atReq.pAtCmd = "AT+CFUN=0";
+    atReq.atCmdType = CELLULAR_AT_NO_RESULT;
+    atReq.pAtRspPrefix = NULL;
+    atReq.respCallback = NULL;
+    atReq.pData = NULL;
+    atReq.dataLen = 0;
+
+    /* Make sure library is open. */
+    cellularStatus = _Cellular_CheckLibraryStatus( pContext );
+
+    if( cellularStatus == CELLULAR_SUCCESS )
+    {
+        pktStatus = _Cellular_AtcmdRequestWithCallback( pContext, atReq );
+        cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
     }
 
     return cellularStatus;
