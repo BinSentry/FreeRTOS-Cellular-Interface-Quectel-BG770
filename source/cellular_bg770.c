@@ -105,6 +105,18 @@ static const char *const UE_FUNC_LEVEL_SIM_ONLY_STRING = "4";
 /* SIM enabled, RF off. Need to set additional settings before modem tries to connect. */
 static const BG770UEFunctionalityLevel_t DESIRED_UE_ENABLE_FUNCTIONALITY_LEVEL = BG770_UE_FUNCTIONALITY_LEVEL_SIM_ONLY;
 
+typedef enum BG770TimeZoneReportingMode
+{
+    BG770_TZ_REPORTING_MODE_DISABLED = 0,         /**< Disable time zone change event reporting */
+    BG770_TZ_REPORTING_MODE_ENABLED = 1,          /**< Enable time zone change event reporting by unsolicited result code +CTZV: <tz> */
+    BG770_TZ_REPORTING_MODE_ENABLED_EXTENDED = 2, /**< Enable extended time zone and local time reporting by unsolicited result code: +CTZE: <tz>,<dst>,<time> */
+    BG770_TZ_REPORTING_MODE_UNKNOWN,              /**< Unknown/unsupported time zone reporting mode. */
+} BG770TimeZoneReportingMode_t;
+
+static const char *const TIME_ZONE_REPORTING_MODE_DISABLED_STRING = "0";
+static const char *const TIME_ZONE_REPORTING_MODE_ENABLED_STRING = "1";
+static const char *const TIME_ZONE_REPORTING_MODE_ENABLED_EXTENDED_STRING = "2";
+
 typedef enum BG770NetworkCategorySearchMode
 {
     BG770_NETWORK_CATEGORY_SEARCH_MODE_eMTC = 0,            /**< eMTC/LTE-M. */
@@ -249,6 +261,12 @@ static bool areRATScanSequencesEquivalent( const BG770RATScanSequence_t * sequen
 
 static bool tryBuildRATScanSequenceString( const BG770RATScanSequence_t * pRATScanSequence,
                                            char * out_pRATScanSequenceString, size_t maxStringLength );
+
+static CellularError_t _GetPsmUrcEnabled( CellularHandle_t cellularHandle,
+                                          bool * pIsPsmUrcEnabled );
+
+static CellularError_t _GetTimeZoneReportingMode( CellularHandle_t cellularHandle,
+                                                  BG770TimeZoneReportingMode_t *pTimeZoneReportingMode );
 
 /*-----------------------------------------------------------*/
 
@@ -561,7 +579,6 @@ CellularError_t Cellular_ModuleCleanUp( const CellularContext_t * pContext )
 CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
 {
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
-    char cmdBuf[ CELLULAR_AT_CMD_MAX_SIZE ] = { '\0' };
     CellularAtReq_t atReqGetNoResult =
     {
         NULL,
@@ -992,15 +1009,10 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
             vTaskDelay( SHORT_DELAY_ticks );
 
             /* Disable LwM2M (automatically turned on with Verizon SIM, LwM2M can change APN and mess with normal DNS lookups) */
-            /* MISRA Ref 21.6.1 [Use of snprintf] */
-            /* More details at: https://github.com/FreeRTOS/FreeRTOS-Cellular-Interface/blob/main/MISRA.md#rule-216 */
-            /* coverity[misra_c_2012_rule_21_6_violation]. */
-            ( void ) snprintf( cmdBuf, sizeof ( cmdBuf ), "AT+QCFG=\"lwm2m\",0" );
-
-            atReqGetNoResult.pAtCmd = cmdBuf;
+            atReqGetNoResult.pAtCmd = "AT+QCFG=\"lwm2m\",0";
 
             bool isLwM2MEnabled = false;
-            CellularError_t getLwM2MEnableStatus = _GetLwM2MEnabled(pContext, &isLwM2MEnabled );
+            const CellularError_t getLwM2MEnableStatus = _GetLwM2MEnabled(pContext, &isLwM2MEnabled );
             if( getLwM2MEnableStatus != CELLULAR_SUCCESS || isLwM2MEnabled )
             {
                 vTaskDelay( SHORT_DELAY_ticks );
@@ -1037,6 +1049,7 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
 CellularError_t Cellular_ModuleEnableUrc( CellularContext_t * pContext )
 {
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
     CellularAtReq_t atReqGetNoResult =
     {
         NULL,
@@ -1053,37 +1066,109 @@ CellularError_t Cellular_ModuleEnableUrc( CellularContext_t * pContext )
         return cellularStatus;
     }
 
-    /* FUTURE: Turn all of these commands into read before write */
-
-    // TODO (MV): Make these indicate error if occurs
-
+    // TODO (MV): Make this command read before write
     /* Set numeric operator format. */
     atReqGetNoResult.pAtCmd = "AT+COPS=3,2";
-    ( void ) _Cellular_AtcmdRequestWithCallback( pContext, atReqGetNoResult );
+    pktStatus = _Cellular_AtcmdRequestWithCallback( pContext, atReqGetNoResult );
+    if( pktStatus != CELLULAR_PKT_STATUS_OK )
+    {
+        LogError( ( "Cellular_ModuleEnableUrc: '%s' error, pktStatus: %s [%d]",
+                     atReqGetNoResult.pAtCmd, getCellularPacketStatusString(pktStatus), pktStatus ) );
+    }
 
     /* Enable network registration and location information unsolicited result code:
-        +CREG: <stat>[,[<lac>],[<ci>],[<AcT>]]
+     *  +CREG: <stat>[,[<lac>],[<ci>],[<AcT>]]
+     * NOTE: Command is not automatically saved, therefore, don't need read-before-write behavior
      */
     atReqGetNoResult.pAtCmd = "AT+CREG=2";
-    ( void ) _Cellular_AtcmdRequestWithCallback( pContext, atReqGetNoResult );
+    pktStatus = _Cellular_AtcmdRequestWithCallback( pContext, atReqGetNoResult );
+    if( pktStatus != CELLULAR_PKT_STATUS_OK )
+    {
+        LogError( ( "Cellular_ModuleEnableUrc: '%s' error, pktStatus: %s [%d]",
+                     atReqGetNoResult.pAtCmd, getCellularPacketStatusString(pktStatus), pktStatus ) );
+    }
 
     /* Enable LTE network registration and location information unsolicited result code:
-     // TODO (MV): Finish this
-    +CEREG: <n>,<stat>[,[<tac>],[<ci>],[<AcT>[,<cause_type>,<reject_cause>]]]
-    +CEREG: <n>,<stat>[,[<tac>],[<ci>],[<AcT>[,<cause_type>,<reject_cause>]]]
+     * <n> = 2:
+     *  +CEREG: <n>,<stat>[,[<tac>],[<ci>],[<AcT>[,<cause_type>,<reject_cause>]]]
+     * <n> = 4:
+     *  +CEREG: <n>,<stat>[,[<tac>],[<ci>],[<AcT>[,[<Active-Time>],[<Periodic-TAU>]]]
+     * NOTE: Command is not automatically saved, therefore, don't need read-before-write behavior
      */
     atReqGetNoResult.pAtCmd = "AT+CEREG=2";
-    ( void ) _Cellular_AtcmdRequestWithCallback( pContext, atReqGetNoResult );
+    pktStatus = _Cellular_AtcmdRequestWithCallback( pContext, atReqGetNoResult );
+    if( pktStatus != CELLULAR_PKT_STATUS_OK )
+    {
+        LogError( ( "Cellular_ModuleEnableUrc: '%s' error, pktStatus: %s [%d]",
+                     atReqGetNoResult.pAtCmd, getCellularPacketStatusString(pktStatus), pktStatus ) );
+    }
+
+    vTaskDelay( SHORT_DELAY_ticks );
 
     /* Enable time zone change event reporting by unsolicited result code +CTZV: <tz> */
     atReqGetNoResult.pAtCmd = "AT+CTZR=1";
-    ( void ) _Cellular_AtcmdRequestWithCallback( pContext, atReqGetNoResult );
+
+    BG770TimeZoneReportingMode_t timeZoneReportingMode = BG770_TZ_REPORTING_MODE_UNKNOWN;
+    cellularStatus = _GetTimeZoneReportingMode( pContext, &timeZoneReportingMode );
+    if( ( cellularStatus != CELLULAR_SUCCESS ) ||
+        ( BG770_TZ_REPORTING_MODE_ENABLED != timeZoneReportingMode ) )
+    {
+        vTaskDelay( SHORT_DELAY_ticks );
+
+        if( cellularStatus != CELLULAR_SUCCESS )
+        {
+            LogError( ( "Cellular_ModuleEnableUrc: Could not get TZ reporting mode, assuming not already set." ) );
+        }
+
+        cellularStatus = sendAtCommandWithRetryTimeout( pContext, &atReqGetNoResult );
+        if( cellularStatus == CELLULAR_SUCCESS )
+        {
+            LogInfo( ( "Cellular_ModuleEnableUrc: '%s' command success.", atReqGetNoResult.pAtCmd ) );
+        }
+        else
+        {
+            LogError( ( "Cellular_ModuleEnableUrc: '%s' command failed (err: %s [%d]).",
+                        atReqGetNoResult.pAtCmd, getCellularErrorString(cellularStatus), cellularStatus ) );
+        }
+    }
+    else
+    {
+        LogInfo( ( "Cellular_ModuleEnableUrc: '%s' command skipped, already set.", atReqGetNoResult.pAtCmd ) );
+    }
+
+    vTaskDelay( SHORT_DELAY_ticks );
 
     /* Enable PSM URC reporting by unsolicited result code +QPSMTIMER: <TAU_timer>,<T3324_timer> */
-    atReqGetNoResult.pAtCmd = "AT+QCFG=\"psm/urc\",1";  // TODO (MV): Fix this
-    ( void ) _Cellular_AtcmdRequestWithCallback( pContext, atReqGetNoResult );
+    atReqGetNoResult.pAtCmd = "AT+QCFG=\"psm/urc\",1";
 
-    return cellularStatus;
+    bool isPsmUrcEnabled = false;
+    cellularStatus = _GetPsmUrcEnabled(pContext, &isPsmUrcEnabled );
+    if( ( cellularStatus != CELLULAR_SUCCESS ) || ( isPsmUrcEnabled != true /* extra thorough condition */ ) )
+    {
+        vTaskDelay( SHORT_DELAY_ticks );
+
+        if( cellularStatus != CELLULAR_SUCCESS )
+        {
+            LogError( ( "Cellular_ModuleEnableUrc: Could not get PSM URC enabled, assuming not already set." ) );
+        }
+
+        cellularStatus = sendAtCommandWithRetryTimeout( pContext, &atReqGetNoResult );
+        if( cellularStatus == CELLULAR_SUCCESS )
+        {
+            LogInfo( ( "Cellular_ModuleEnableUrc: '%s' command success.", atReqGetNoResult.pAtCmd ) );
+        }
+        else
+        {
+            LogError( ( "Cellular_ModuleEnableUrc: '%s' command failed (err: %s [%d]).",
+                        atReqGetNoResult.pAtCmd, getCellularErrorString(cellularStatus), cellularStatus ) );
+        }
+    }
+    else
+    {
+        LogInfo( ( "Cellular_ModuleEnableUrc: '%s' command skipped, already set.", atReqGetNoResult.pAtCmd ) );
+    }
+
+    return CELLULAR_SUCCESS;    // always success even if commands fail
 }
 
 /*-----------------------------------------------------------*/
@@ -2843,3 +2928,311 @@ static CellularError_t _SetRATScanSequence( CellularHandle_t cellularHandle,
 
     return cellularStatus;
 }
+
+/*-----------------------------------------------------------*/
+
+static bool _parsePsmUrcEnable( char * pQcfgPsmUrcPayload,
+                                bool * pIsPsmUrcEnabled )
+{
+    char * pToken = NULL, * pTmpQcfgPsmUrcPayload = pQcfgPsmUrcPayload;
+    bool parseStatus = true;
+    CellularATError_t atCoreStatus = CELLULAR_AT_SUCCESS;
+    int32_t tempValue = 0;
+
+    if( ( pIsPsmUrcEnabled == NULL ) || ( pQcfgPsmUrcPayload == NULL ) )
+    {
+        LogError( ( "_GetPsmUrcEnabled: Invalid Input Parameters" ) );
+        parseStatus = false;
+    }
+
+    if( parseStatus == true )
+    {
+        if( Cellular_ATGetNextTok( &pTmpQcfgPsmUrcPayload, &pToken ) != CELLULAR_AT_SUCCESS ||
+            strcmp( pToken, "\"psm/urc\"" ) != 0 )
+        {
+            LogError( ( "_GetPsmUrcEnabled: Error, missing \"psm/urc\"" ) );
+            parseStatus = false;
+        }
+    }
+
+    if( parseStatus == true )
+    {
+        if( Cellular_ATGetNextTok( &pTmpQcfgPsmUrcPayload, &pToken ) == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATStrtoi( pToken, 10, &tempValue );
+            if( atCoreStatus == CELLULAR_AT_SUCCESS)
+            {
+                if( ( tempValue >= 0 ) && ( tempValue <= ( int32_t ) 1 ) )
+                {
+                    *pIsPsmUrcEnabled = ( tempValue == 1 );
+                }
+                else
+                {
+                    atCoreStatus = CELLULAR_AT_ERROR;
+                }
+            }
+
+            if( atCoreStatus != CELLULAR_AT_SUCCESS )
+            {
+                LogError( ( "_GetPsmUrcEnabled: Error in processing enable. Token %s", pToken ) );
+                *pIsPsmUrcEnabled = false;
+                parseStatus = false;
+            }
+        }
+        else
+        {
+            LogError( ( "_GetPsmUrcEnabled: enable not present" ) );
+            *pIsPsmUrcEnabled = false;
+            parseStatus = false;
+        }
+    }
+    else
+    {
+        if( pIsPsmUrcEnabled != NULL )
+        {
+            *pIsPsmUrcEnabled = false;
+        }
+    }
+
+    return parseStatus;
+}
+
+/* FreeRTOS Cellular Library types. */
+/* coverity[misra_c_2012_rule_8_13_violation] */
+static CellularPktStatus_t _RecvFuncGetPsmUrcEnable( CellularContext_t * pContext,
+                                                     const CellularATCommandResponse_t * pAtResp,
+                                                     void * pData,
+                                                     uint16_t dataLen )
+{
+    char * pInputLine = NULL;
+    bool * pIsPsmUrcEnabled = ( bool * ) pData;
+    bool parseStatus = true;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    CellularATError_t atCoreStatus = CELLULAR_AT_SUCCESS;
+
+    if( pContext == NULL )
+    {
+        pktStatus = CELLULAR_PKT_STATUS_INVALID_HANDLE;
+    }
+    else if( ( pIsPsmUrcEnabled == NULL ) || ( dataLen != sizeof( bool ) ) )
+    {
+        pktStatus = CELLULAR_PKT_STATUS_BAD_PARAM;
+    }
+    else if( ( pAtResp == NULL ) || ( pAtResp->pItm == NULL ) || ( pAtResp->pItm->pLine == NULL ) )
+    {
+        LogError( ( "_GetPsmUrcEnabled: Input Line passed is NULL" ) );
+        pktStatus = CELLULAR_PKT_STATUS_FAILURE;
+    }
+    else
+    {
+        pInputLine = pAtResp->pItm->pLine;
+        atCoreStatus = Cellular_ATRemovePrefix( &pInputLine );
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATRemoveAllWhiteSpaces( pInputLine );
+        }
+
+        if( atCoreStatus != CELLULAR_AT_SUCCESS )
+        {
+            pktStatus = _Cellular_TranslateAtCoreStatus( atCoreStatus );
+        }
+    }
+
+    if( pktStatus == CELLULAR_PKT_STATUS_OK )
+    {
+        parseStatus = _parsePsmUrcEnable( pInputLine, pIsPsmUrcEnabled );
+
+        if( parseStatus != true )
+        {
+            *pIsPsmUrcEnabled = false;
+            pktStatus = CELLULAR_PKT_STATUS_FAILURE;
+        }
+    }
+
+    return pktStatus;
+}
+
+static CellularError_t _GetPsmUrcEnabled( CellularHandle_t cellularHandle,
+                                          bool * pIsPsmUrcEnabled )
+{
+    CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    CellularAtReq_t atReqGetLwM2MEnable =
+    {
+        "AT+QCFG=\"psm/urc\"",
+        CELLULAR_AT_WITH_PREFIX,
+        "+QCFG",
+        _RecvFuncGetPsmUrcEnable,
+        pIsPsmUrcEnabled,
+        sizeof( bool ),
+    };
+
+    if( pIsPsmUrcEnabled == NULL )
+    {
+        cellularStatus = CELLULAR_BAD_PARAMETER;
+    }
+    else
+    {
+        pktStatus = _Cellular_AtcmdRequestWithCallback( pContext, atReqGetLwM2MEnable );
+
+        if( pktStatus != CELLULAR_PKT_STATUS_OK )
+        {
+            LogError( ( "_GetPsmUrcEnabled: couldn't retrieve PSM URC enable (pktStatus: %s [%d]).",
+                        getCellularPacketStatusString(pktStatus), pktStatus ) );
+            cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
+        }
+    }
+
+    return cellularStatus;
+}
+
+/*-----------------------------------------------------------*/
+
+/**< NOTE: pTimeZoneReportingModeString is expected to contain no whitespace. */
+static BG770TimeZoneReportingMode_t _getTimeZoneReportingMode( const char * pTimeZoneReportingModeString )
+{
+    if( strcmp( pTimeZoneReportingModeString, TIME_ZONE_REPORTING_MODE_DISABLED_STRING ) == 0 )
+    {
+        return BG770_TZ_REPORTING_MODE_DISABLED;
+    }
+    else if ( strcmp( pTimeZoneReportingModeString, TIME_ZONE_REPORTING_MODE_ENABLED_STRING ) == 0 )
+    {
+        return BG770_TZ_REPORTING_MODE_ENABLED;
+    }
+    else if ( strcmp( pTimeZoneReportingModeString, TIME_ZONE_REPORTING_MODE_ENABLED_EXTENDED_STRING ) == 0 )
+    {
+        return BG770_TZ_REPORTING_MODE_ENABLED_EXTENDED;
+    }
+    else
+    {
+        return BG770_TZ_REPORTING_MODE_UNKNOWN;
+    }
+}
+
+static bool _parseTimeZoneReportingMode( char * pQTimeZoneReportingModePayload,
+                                         BG770TimeZoneReportingMode_t *const pTimeZoneReportingMode )
+{
+    char * pToken = NULL, * pTmpQTimeZoneReportingMode = pQTimeZoneReportingModePayload;
+    bool parseStatus = true;
+
+    if( ( pTimeZoneReportingMode == NULL ) || ( pQTimeZoneReportingModePayload == NULL ) )
+    {
+        LogError( ( "_parseTimeZoneReportingMode: Invalid Input Parameters" ) );
+        parseStatus = false;
+    }
+
+    if( parseStatus == true )
+    {
+        if( Cellular_ATGetNextTok( &pTmpQTimeZoneReportingMode, &pToken ) == CELLULAR_AT_SUCCESS )
+        {
+            *pTimeZoneReportingMode = _getTimeZoneReportingMode( pToken );
+            if( *pTimeZoneReportingMode == BG770_TZ_REPORTING_MODE_UNKNOWN ) {
+                LogError( ( "_parseTimeZoneReportingMode: time zone reporting mode invalid, '%s'", pToken ) );
+                parseStatus = false;
+            }
+        }
+        else
+        {
+            LogError( ( "_parseTimeZoneReportingMode: time zone reporting mode string not present" ) );
+            *pTimeZoneReportingMode = BG770_TZ_REPORTING_MODE_UNKNOWN;
+            parseStatus = false;
+        }
+    }
+
+    return parseStatus;
+}
+
+/* FreeRTOS Cellular Library types. */
+/* coverity[misra_c_2012_rule_8_13_violation] */
+static CellularPktStatus_t _RecvFuncGetTimeZoneReportingMode( CellularContext_t * pContext,
+                                                              const CellularATCommandResponse_t * pAtResp,
+                                                              void * pData,
+                                                              uint16_t dataLen )
+{
+    char * pInputLine = NULL;
+    BG770TimeZoneReportingMode_t * pTimeZoneReportingMode = ( BG770TimeZoneReportingMode_t * ) pData;
+    bool parseStatus = true;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    CellularATError_t atCoreStatus = CELLULAR_AT_SUCCESS;
+
+    if( pContext == NULL )
+    {
+        pktStatus = CELLULAR_PKT_STATUS_INVALID_HANDLE;
+    }
+    else if( ( pTimeZoneReportingMode == NULL ) || ( dataLen != sizeof( BG770TimeZoneReportingMode_t ) ) )
+    {
+        pktStatus = CELLULAR_PKT_STATUS_BAD_PARAM;
+    }
+    else if( ( pAtResp == NULL ) || ( pAtResp->pItm == NULL ) || ( pAtResp->pItm->pLine == NULL ) )
+    {
+        LogError( ( "_GetTimeZoneReportingMode: Input Line passed is NULL" ) );
+        pktStatus = CELLULAR_PKT_STATUS_FAILURE;
+    }
+    else
+    {
+        pInputLine = pAtResp->pItm->pLine;
+        atCoreStatus = Cellular_ATRemovePrefix( &pInputLine );
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATRemoveAllWhiteSpaces( pInputLine );
+        }
+
+        if( atCoreStatus != CELLULAR_AT_SUCCESS )
+        {
+            pktStatus = _Cellular_TranslateAtCoreStatus( atCoreStatus );
+        }
+    }
+
+    if( pktStatus == CELLULAR_PKT_STATUS_OK )
+    {
+        parseStatus = _parseTimeZoneReportingMode( pInputLine, pTimeZoneReportingMode );
+
+        if( parseStatus != true )
+        {
+            *pTimeZoneReportingMode = BG770_TZ_REPORTING_MODE_UNKNOWN;
+            pktStatus = CELLULAR_PKT_STATUS_FAILURE;
+        }
+    }
+
+    return pktStatus;
+}
+
+static CellularError_t _GetTimeZoneReportingMode( CellularHandle_t cellularHandle,
+                                                  BG770TimeZoneReportingMode_t *const pTimeZoneReportingMode )
+{
+    CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    CellularAtReq_t atReqGetTimeZoneReportingMode =
+    {
+        "AT+CTZR?",
+        CELLULAR_AT_WITH_PREFIX,
+        "+CTZR",
+        _RecvFuncGetTimeZoneReportingMode,
+        pTimeZoneReportingMode,
+        sizeof( BG770TimeZoneReportingMode_t ),
+    };
+
+    if( pTimeZoneReportingMode == NULL )
+    {
+        cellularStatus = CELLULAR_BAD_PARAMETER;
+    }
+    else
+    {
+        pktStatus = _Cellular_AtcmdRequestWithCallback( pContext, atReqGetTimeZoneReportingMode );
+
+        if( pktStatus != CELLULAR_PKT_STATUS_OK )
+        {
+            LogError( ( "_GetTimeZoneReportingMode: couldn't retrieve time zone reporting mode (pktStatus: %s [%d]).",
+                        getCellularPacketStatusString(pktStatus), pktStatus ) );
+            cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
+        }
+    }
+
+    return cellularStatus;
+}
+
+/*-----------------------------------------------------------*/
