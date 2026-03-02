@@ -102,8 +102,12 @@ static const char *const UE_FUNC_LEVEL_MINIMUM_STRING = "0";
 static const char *const UE_FUNC_LEVEL_FULL_STRING = "1";
 static const char *const UE_FUNC_LEVEL_SIM_ONLY_STRING = "4";
 
+#ifdef CELLULAR_CONFIG_FORCE_FUNCTIONALITY_LEVEL_SIM_ONLY_RF_OFF
+
 /* SIM enabled, RF off. Need to set additional settings before modem tries to connect. */
 static const BG770UEFunctionalityLevel_t DESIRED_UE_ENABLE_FUNCTIONALITY_LEVEL = BG770_UE_FUNCTIONALITY_LEVEL_SIM_ONLY;
+
+#endif
 
 typedef enum BG770TimeZoneReportingMode
 {
@@ -218,11 +222,15 @@ static CellularError_t _GetUEFunctionalityLevelWithRetryTimeout( CellularHandle_
                                                                  uint32_t commandTimeoutMS,
                                                                  uint32_t exponentialBackoffInterCommandBaseMS );
 
+#ifdef CELLULAR_CONFIG_FORCE_FUNCTIONALITY_LEVEL_SIM_ONLY_RF_OFF
+
 static CellularError_t _SetUEFunctionalityLevel( CellularHandle_t cellularHandle,
                                                  BG770UEFunctionalityLevel_t ueFunctionalityLevel,
                                                  uint32_t commandTimeoutMS );
 
 static CellularError_t _SetDesiredUEFunctionalityLevel( CellularHandle_t cellularHandle, uint32_t commandTimeoutMS );
+
+#endif
 
 static CellularError_t _GetNetworkCategorySearchMode( CellularHandle_t cellularHandle,
                                                       BG770NetworkCategorySearchMode_t * pNetworkCategorySearchMode,
@@ -755,38 +763,41 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
                 LogInfo( ( "Cellular_ModuleEnableUE: UE functionality level (%d) on boot.", ueFunctionalityLevel ) );
             }
 
-            // TODO (MV): Fix this
-            // if( cellularStatus != CELLULAR_SUCCESS ||
-            //     DESIRED_UE_ENABLE_FUNCTIONALITY_LEVEL != ueFunctionalityLevel )
-            // {
-            //     if( cellularStatus != CELLULAR_SUCCESS )
-            //     {
-            //         LogError( ( "Cellular_ModuleEnableUE: Could not get UE functionality level, assuming not already set." ) );
-            //     }
-            //
-            //     cellularStatus = setRetryableSettingWithTimeoutParams(
-            //             _SetDesiredUEFunctionalityLevel, pContext, ENABLE_MODULE_UE_RETRY_TIMEOUT_MS,
-            //             ENABLE_MODULE_UE_RETRY_EXP_BACKOFF_INTER_COMMAND_BASE_MS );
-            //     if( cellularStatus == CELLULAR_SUCCESS )
-            //     {
-            //         LogInfo( ( "Cellular_ModuleEnableUE: Set UE functionality level (%d) command success.", DESIRED_UE_ENABLE_FUNCTIONALITY_LEVEL ) );
-            //     }
-            //     else
-            //     {
-            //         LogError( ( "Cellular_ModuleEnableUE: Set UE functionality level (%d) command failure (err: %s [%d]), current level: %d.",
-            //                     DESIRED_UE_ENABLE_FUNCTIONALITY_LEVEL,
-            //                     getCellularErrorString(cellularStatus), cellularStatus,
-            //                     ueFunctionalityLevel ) );
-            //     }
-            // }
-            // else
-            // {
-            //     LogInfo( ( "Cellular_ModuleEnableUE: Set UE functionality level (%d) command skipped, already set.", DESIRED_UE_ENABLE_FUNCTIONALITY_LEVEL ) );
-            // }
+#ifdef CELLULAR_CONFIG_FORCE_FUNCTIONALITY_LEVEL_SIM_ONLY_RF_OFF
+            if( cellularStatus != CELLULAR_SUCCESS ||
+                DESIRED_UE_ENABLE_FUNCTIONALITY_LEVEL != ueFunctionalityLevel )
+            {
+                if( cellularStatus != CELLULAR_SUCCESS )
+                {
+                    LogError( ( "Cellular_ModuleEnableUE: Could not get UE functionality level, assuming not already set." ) );
+                }
+
+                cellularStatus = setRetryableSettingWithTimeoutParams(
+                        _SetDesiredUEFunctionalityLevel, pContext, ENABLE_MODULE_UE_RETRY_TIMEOUT_MS,
+                        ENABLE_MODULE_UE_RETRY_EXP_BACKOFF_INTER_COMMAND_BASE_MS );
+                if( cellularStatus == CELLULAR_SUCCESS )
+                {
+                    LogInfo( ( "Cellular_ModuleEnableUE: Set UE functionality level (%d) command success.", DESIRED_UE_ENABLE_FUNCTIONALITY_LEVEL ) );
+                }
+                else
+                {
+                    LogError( ( "Cellular_ModuleEnableUE: Set UE functionality level (%d) command failure (err: %s [%d]), current level: %d.",
+                                DESIRED_UE_ENABLE_FUNCTIONALITY_LEVEL,
+                                getCellularErrorString(cellularStatus), cellularStatus,
+                                ueFunctionalityLevel ) );
+                }
+            }
+            else
+            {
+                LogInfo( ( "Cellular_ModuleEnableUE: Set UE functionality level (%d) command skipped, already set.", DESIRED_UE_ENABLE_FUNCTIONALITY_LEVEL ) );
+            }
+#endif
         }
         else
         {
+#ifdef CELLULAR_CONFIG_FORCE_FUNCTIONALITY_LEVEL_SIM_ONLY_RF_OFF
             LogWarn( ( "Cellular_ModuleEnableUE: Skipped Set RF off / SIM enabled due to error." ) );
+#endif
         }
 
         if( cellularStatus == CELLULAR_SUCCESS )
@@ -1082,7 +1093,11 @@ CellularError_t Cellular_ModuleEnableUrc( CellularContext_t * pContext )
      */
     atReqGetNoResult.pAtCmd = "AT+CREG=2";
     pktStatus = _Cellular_AtcmdRequestWithCallback( pContext, atReqGetNoResult );
-    if( pktStatus != CELLULAR_PKT_STATUS_OK )
+    if( pktStatus == CELLULAR_PKT_STATUS_OK )
+    {
+        LogInfo( ( "Cellular_ModuleEnableUrc: '%s' command success", atReqGetNoResult.pAtCmd ) );
+    }
+    else
     {
         LogError( ( "Cellular_ModuleEnableUrc: '%s' error, pktStatus: %s [%d]",
                      atReqGetNoResult.pAtCmd, getCellularPacketStatusString(pktStatus), pktStatus ) );
@@ -1090,14 +1105,18 @@ CellularError_t Cellular_ModuleEnableUrc( CellularContext_t * pContext )
 
     /* Enable LTE network registration and location information unsolicited result code:
      * <n> = 2:
-     *  +CEREG: <n>,<stat>[,[<tac>],[<ci>],[<AcT>[,<cause_type>,<reject_cause>]]]
+     *  +CEREG: <stat>[,[<tac>],[<ci>],[<AcT>[,<cause_type>,<reject_cause>]]]
      * <n> = 4:
-     *  +CEREG: <n>,<stat>[,[<tac>],[<ci>],[<AcT>[,[<Active-Time>],[<Periodic-TAU>]]]
+     *  +CEREG: <stat>[,[<tac>],[<ci>],[<AcT>][,,[,[<Active-Time>],[<Periodic-TAU>]]]]
      * NOTE: Command is not automatically saved, therefore, don't need read-before-write behavior
      */
-    atReqGetNoResult.pAtCmd = "AT+CEREG=2";
+    atReqGetNoResult.pAtCmd = "AT+CEREG=4";
     pktStatus = _Cellular_AtcmdRequestWithCallback( pContext, atReqGetNoResult );
-    if( pktStatus != CELLULAR_PKT_STATUS_OK )
+    if( pktStatus == CELLULAR_PKT_STATUS_OK )
+    {
+        LogInfo( ( "Cellular_ModuleEnableUrc: '%s' command success", atReqGetNoResult.pAtCmd ) );
+    }
+    else
     {
         LogError( ( "Cellular_ModuleEnableUrc: '%s' error, pktStatus: %s [%d]",
                      atReqGetNoResult.pAtCmd, getCellularPacketStatusString(pktStatus), pktStatus ) );
@@ -1903,27 +1922,6 @@ static BG770UEFunctionalityLevel_t _getUEFunctionalityLevel( const char * pFunct
     }
 }
 
-static const char * _getUEFunctionalityLevelString( const BG770UEFunctionalityLevel_t ueFunctionalityLevel )
-{
-    switch( ueFunctionalityLevel )
-    {
-        case BG770_UE_FUNCTIONALITY_LEVEL_MINIMUM:
-            return UE_FUNC_LEVEL_MINIMUM_STRING;
-
-        case BG770_UE_FUNCTIONALITY_LEVEL_FULL:
-            return UE_FUNC_LEVEL_FULL_STRING;
-
-        case BG770_UE_FUNCTIONALITY_LEVEL_SIM_ONLY:
-            return UE_FUNC_LEVEL_SIM_ONLY_STRING;
-
-        default:
-            LogError( ( "_getUEFunctionalityLevelString: Invalid BG770UEFunctionalityLevel_t: %d", ueFunctionalityLevel ) );
-            /**< Intentional fall-through */
-        case BG770_UE_FUNCTIONALITY_LEVEL_UNKNOWN:
-            return "<unknown>";
-    }
-}
-
 static bool _parseUEFunctionalityLevel( char * pQUEFunctionalityLevelPayload,
                                         BG770UEFunctionalityLevel_t *const pUEFunctionalityLevel )
 {
@@ -2084,9 +2082,32 @@ CellularError_t CellularModule_GetUEFunctionalityLevel( CellularHandle_t cellula
 
 /*-----------------------------------------------------------*/
 
+#ifdef CELLULAR_CONFIG_FORCE_FUNCTIONALITY_LEVEL_SIM_ONLY_RF_OFF
+
 static CellularError_t _SetDesiredUEFunctionalityLevel( CellularHandle_t cellularHandle, uint32_t commandTimeoutMS )
 {
-    return _SetUEFunctionalityLevel( cellularHandle, DESIRED_UE_ENABLE_FUNCTIONALITY_LEVEL, commandTimeoutMS );     // TODO (MV): Need to no longer do this here? Be smarter about whether in PSM or eDRX and not do this
+    return _SetUEFunctionalityLevel( cellularHandle, DESIRED_UE_ENABLE_FUNCTIONALITY_LEVEL, commandTimeoutMS );
+}
+
+static const char * _getUEFunctionalityLevelString( const BG770UEFunctionalityLevel_t ueFunctionalityLevel )
+{
+    switch( ueFunctionalityLevel )
+    {
+    case BG770_UE_FUNCTIONALITY_LEVEL_MINIMUM:
+        return UE_FUNC_LEVEL_MINIMUM_STRING;
+
+    case BG770_UE_FUNCTIONALITY_LEVEL_FULL:
+        return UE_FUNC_LEVEL_FULL_STRING;
+
+    case BG770_UE_FUNCTIONALITY_LEVEL_SIM_ONLY:
+        return UE_FUNC_LEVEL_SIM_ONLY_STRING;
+
+    default:
+        LogError( ( "_getUEFunctionalityLevelString: Invalid BG770UEFunctionalityLevel_t: %d", ueFunctionalityLevel ) );
+        /**< Intentional fall-through */
+    case BG770_UE_FUNCTIONALITY_LEVEL_UNKNOWN:
+        return "<unknown>";
+    }
 }
 
 static CellularError_t _SetUEFunctionalityLevel( CellularHandle_t cellularHandle,
@@ -2133,6 +2154,8 @@ static CellularError_t _SetUEFunctionalityLevel( CellularHandle_t cellularHandle
 
     return cellularStatus;
 }
+
+#endif
 
 /*-----------------------------------------------------------*/
 
