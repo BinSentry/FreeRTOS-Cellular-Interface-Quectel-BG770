@@ -1704,7 +1704,7 @@ static CellularATError_t parseQpsmsTau( char * pToken,
         }
         else
         {
-            LogError( ( "Error in processing Periodic TAU value value. Token %s", pToken ) );
+            LogError( ( "Error in processing Periodic TAU value. Token %s", pToken ) );
             atCoreStatus = CELLULAR_AT_ERROR;
         }
     }
@@ -1815,7 +1815,7 @@ static CellularATError_t parseCpsmsTau( char * pToken,
         }
         else
         {
-            LogError( ( "Error in processing Requested Periodic TAU value value. Token %s", pToken ) );
+            LogError( ( "Error in processing Requested Periodic TAU value. Token %s", pToken ) );
             atCoreStatus = CELLULAR_AT_ERROR;
         }
     }
