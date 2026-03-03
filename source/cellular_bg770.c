@@ -1077,16 +1077,6 @@ CellularError_t Cellular_ModuleEnableUrc( CellularContext_t * pContext )
         return cellularStatus;
     }
 
-    // TODO (MV): Make this command read before write
-    /* Set numeric operator format. */
-    atReqGetNoResult.pAtCmd = "AT+COPS=3,2";
-    pktStatus = _Cellular_AtcmdRequestWithCallback( pContext, atReqGetNoResult );
-    if( pktStatus != CELLULAR_PKT_STATUS_OK )
-    {
-        LogError( ( "Cellular_ModuleEnableUrc: '%s' error, pktStatus: %s [%d]",
-                     atReqGetNoResult.pAtCmd, getCellularPacketStatusString(pktStatus), pktStatus ) );
-    }
-
     /* Enable network registration and location information unsolicited result code:
      *  +CREG: <stat>[,[<lac>],[<ci>],[<AcT>]]
      * NOTE: Command is not automatically saved, therefore, don't need read-before-write behavior
@@ -1102,6 +1092,8 @@ CellularError_t Cellular_ModuleEnableUrc( CellularContext_t * pContext )
         LogError( ( "Cellular_ModuleEnableUrc: '%s' error, pktStatus: %s [%d]",
                      atReqGetNoResult.pAtCmd, getCellularPacketStatusString(pktStatus), pktStatus ) );
     }
+
+    vTaskDelay( SHORT_DELAY_ticks );
 
     /* Enable LTE network registration and location information unsolicited result code:
      * <n> = 2:
