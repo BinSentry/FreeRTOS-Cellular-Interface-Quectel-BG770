@@ -7139,12 +7139,12 @@ CellularError_t Cellular_SetServiceSelection( CellularHandle_t cellularHandle,
             /* coverity[misra_c_2012_rule_21_6_violation]. */
             ( void ) snprintf( cmdBuf, CELLULAR_AT_CMD_MAX_SIZE, "%s%d,%d,\"%s\"%s",
                                "AT+COPS=", mode, pServiceSelection->operatorNameFormat, operatorString, commaRATString );
-            LogDebug( ( "Cellular_SetPSMEntry: PSM enter command: %s", cmdBuf ) );
+            LogDebug( ( "Cellular_SetServiceSelection: command '%s'", cmdBuf ) );
             pktStatus = _Cellular_TimeoutAtcmdRequestWithCallback( pContext, atReqSetServiceSelection, OPERATOR_SELECTION_PACKET_REQ_TIMEOUT_MS );
 
             if( pktStatus != CELLULAR_PKT_STATUS_OK )
             {
-                LogError( ( "Cellular_SetServiceSelection: couldn't send service selection" ) );    // TODO (MV): Add error
+                LogError( ( "Cellular_SetServiceSelection: couldn't set service selection, err: %d", pktStatus ) );
                 cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
             }
         }
