@@ -1070,6 +1070,8 @@ CellularError_t Cellular_ModuleEnableUrc( CellularContext_t * pContext )
         NULL,
         0
     };
+    bool isPsmUrcEnabled = false;
+    bool desiredIsPsmUrcEnabled = false;
 
     if( configSkipPostHWFlowControlSetupIfChanged && fullInitSkippedResult == CELLULAR_FULL_INIT_SKIPPED_RESULT_YES )
     {
@@ -1102,7 +1104,12 @@ CellularError_t Cellular_ModuleEnableUrc( CellularContext_t * pContext )
      *  +CEREG: <stat>[,[<tac>],[<ci>],[<AcT>][,,[,[<Active-Time>],[<Periodic-TAU>]]]]
      * NOTE: Command is not automatically saved, therefore, don't need read-before-write behavior
      */
+#ifdef CELLULAR_CONFIG_ALLOW_BG770_PSM
     atReqGetNoResult.pAtCmd = "AT+CEREG=4";
+#else
+    atReqGetNoResult.pAtCmd = "AT+CEREG=2";
+#endif
+
     pktStatus = _Cellular_AtcmdRequestWithCallback( pContext, atReqGetNoResult );
     if( pktStatus == CELLULAR_PKT_STATUS_OK )
     {
@@ -1149,12 +1156,18 @@ CellularError_t Cellular_ModuleEnableUrc( CellularContext_t * pContext )
 
     vTaskDelay( SHORT_DELAY_ticks );
 
+#ifdef CELLULAR_CONFIG_ALLOW_BG770_PSM
     /* Enable PSM URC reporting by unsolicited result code +QPSMTIMER: <TAU_timer>,<T3324_timer> */
     atReqGetNoResult.pAtCmd = "AT+QCFG=\"psm/urc\",1";
+    desiredIsPsmUrcEnabled = true;
+#else
+    /* Disable PSM URC reporting */
+    atReqGetNoResult.pAtCmd = "AT+QCFG=\"psm/urc\",0";
+    desiredIsPsmUrcEnabled = false;
+#endif
 
-    bool isPsmUrcEnabled = false;
     cellularStatus = _GetPsmUrcEnabled(pContext, &isPsmUrcEnabled );
-    if( ( cellularStatus != CELLULAR_SUCCESS ) || ( isPsmUrcEnabled != true /* extra thorough condition */ ) )
+    if( ( cellularStatus != CELLULAR_SUCCESS ) || ( isPsmUrcEnabled != desiredIsPsmUrcEnabled ) )
     {
         vTaskDelay( SHORT_DELAY_ticks );
 
