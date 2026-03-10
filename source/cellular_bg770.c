@@ -354,7 +354,7 @@ static const char * getCellularErrorString( const CellularError_t cellularError 
 
 /*-----------------------------------------------------------*/
 
-static const char * getCellularPacketStatusString( const CellularPktStatus_t packetStatus ) {
+const char * CellularModule_GetCellularPacketStatusString( const CellularPktStatus_t packetStatus ) {
     switch (packetStatus) {
         case CELLULAR_PKT_STATUS_OK:
             return "OK";
@@ -1023,7 +1023,7 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
             atReqGetNoResult.pAtCmd = "AT+QCFG=\"lwm2m\",0";
 
             bool isLwM2MEnabled = false;
-            const CellularError_t getLwM2MEnableStatus = _GetLwM2MEnabled(pContext, &isLwM2MEnabled );
+            CellularError_t getLwM2MEnableStatus = _GetLwM2MEnabled(pContext, &isLwM2MEnabled );
             if( getLwM2MEnableStatus != CELLULAR_SUCCESS || isLwM2MEnabled )
             {
                 vTaskDelay( SHORT_DELAY_ticks );
@@ -1092,7 +1092,7 @@ CellularError_t Cellular_ModuleEnableUrc( CellularContext_t * pContext )
     else
     {
         LogError( ( "Cellular_ModuleEnableUrc: '%s' error, pktStatus: %s [%d]",
-                     atReqGetNoResult.pAtCmd, getCellularPacketStatusString(pktStatus), pktStatus ) );
+                     atReqGetNoResult.pAtCmd, CellularModule_GetCellularPacketStatusString(pktStatus), pktStatus ) );
     }
 
     vTaskDelay( SHORT_DELAY_ticks );
@@ -1118,7 +1118,7 @@ CellularError_t Cellular_ModuleEnableUrc( CellularContext_t * pContext )
     else
     {
         LogError( ( "Cellular_ModuleEnableUrc: '%s' error, pktStatus: %s [%d]",
-                     atReqGetNoResult.pAtCmd, getCellularPacketStatusString(pktStatus), pktStatus ) );
+                     atReqGetNoResult.pAtCmd, CellularModule_GetCellularPacketStatusString(pktStatus), pktStatus ) );
     }
 
     vTaskDelay( SHORT_DELAY_ticks );
@@ -1342,7 +1342,7 @@ static CellularError_t _GetLwM2MEnabled( CellularHandle_t cellularHandle,
         if( pktStatus != CELLULAR_PKT_STATUS_OK )
         {
             LogError( ( "_GetLwM2MEnabled: couldn't retrieve L2M2M enable (pktStatus: %s [%d]).",
-                        getCellularPacketStatusString(pktStatus), pktStatus ) );
+                        CellularModule_GetCellularPacketStatusString(pktStatus), pktStatus ) );
             cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
         }
     }
@@ -1557,7 +1557,7 @@ static CellularError_t _GetURCIndicationOption( CellularHandle_t cellularHandle,
         if( pktStatus != CELLULAR_PKT_STATUS_OK )
         {
             LogError( ( "_GetURCIndicationOption: couldn't retrieve URC indication option (pktStatus: %s [%d]).",
-                        getCellularPacketStatusString(pktStatus), pktStatus ) );
+                        CellularModule_GetCellularPacketStatusString(pktStatus), pktStatus ) );
             cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
         }
     }
@@ -1609,7 +1609,7 @@ static CellularError_t _SetURCIndicationOption( CellularHandle_t cellularHandle,
         if( pktStatus != CELLULAR_PKT_STATUS_OK )
         {
             LogError( ( "_SetURCIndicationOption: couldn't set URC indication option (pktStatus: %s [%d]).",
-                        getCellularPacketStatusString(pktStatus), pktStatus ) );
+                        CellularModule_GetCellularPacketStatusString(pktStatus), pktStatus ) );
             cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
         }
     }
@@ -1848,7 +1848,7 @@ static CellularError_t _GetFlowControlState( CellularHandle_t cellularHandle,
         if( pktStatus != CELLULAR_PKT_STATUS_OK )
         {
             LogError( ( "_GetFlowControlState: couldn't retrieve flow control state (pktStatus: %s [%d]).",
-                        getCellularPacketStatusString(pktStatus), pktStatus ) );
+                        CellularModule_GetCellularPacketStatusString(pktStatus), pktStatus ) );
             cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
         }
     }
@@ -1896,7 +1896,7 @@ static CellularError_t _SetFlowControlState( CellularHandle_t cellularHandle,
         if( pktStatus != CELLULAR_PKT_STATUS_OK )
         {
             LogError( ( "_SetFlowControlState: couldn't set flow control state (pktStatus: %s [%d]).",
-                        getCellularPacketStatusString(pktStatus), pktStatus ) );
+                        CellularModule_GetCellularPacketStatusString(pktStatus), pktStatus ) );
             cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
         }
     }
@@ -2077,7 +2077,7 @@ CellularError_t CellularModule_GetUEFunctionalityLevel( CellularHandle_t cellula
         if( pktStatus != CELLULAR_PKT_STATUS_OK )
         {
             LogError( ( "_GetUEFunctionalityLevel: couldn't retrieve UE functionality level (pktStatus: %s [%d]).",
-                        getCellularPacketStatusString(pktStatus), pktStatus ) );
+                        CellularModule_GetCellularPacketStatusString(pktStatus), pktStatus ) );
             cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
         }
     }
@@ -2152,7 +2152,7 @@ static CellularError_t _SetUEFunctionalityLevel( CellularHandle_t cellularHandle
         if( pktStatus != CELLULAR_PKT_STATUS_OK )
         {
             LogError( ( "_SetUEFunctionalityLevel: couldn't set UE functionality level (pktStatus: %s [%d]).",
-                        getCellularPacketStatusString(pktStatus), pktStatus ) );
+                        CellularModule_GetCellularPacketStatusString(pktStatus), pktStatus ) );
             cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
         }
     }
@@ -2373,7 +2373,7 @@ static CellularError_t _GetNetworkCategorySearchMode( CellularHandle_t cellularH
         if( pktStatus != CELLULAR_PKT_STATUS_OK )
         {
             LogError( ( "_GetNetworkCategorySearchMode: couldn't retrieve network category search mode (pktStatus: %s [%d]).",
-                        getCellularPacketStatusString(pktStatus), pktStatus ) );
+                        CellularModule_GetCellularPacketStatusString(pktStatus), pktStatus ) );
             cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
         }
     }
@@ -2429,7 +2429,7 @@ static CellularError_t _SetNetworkCategorySearchMode( CellularHandle_t cellularH
         if( pktStatus != CELLULAR_PKT_STATUS_OK )
         {
             LogError( ( "_SetNetworkCategorySearchMode: couldn't set network category search mode (pktStatus: %s [%d]).",
-                        getCellularPacketStatusString(pktStatus), pktStatus ) );
+                        CellularModule_GetCellularPacketStatusString(pktStatus), pktStatus ) );
             cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
         }
     }
@@ -2891,7 +2891,7 @@ static CellularError_t _GetRATScanSequence( CellularHandle_t cellularHandle,
         if( pktStatus != CELLULAR_PKT_STATUS_OK )
         {
             LogError( ( "_GetRATScanSequence: couldn't retrieve RAT scan sequence (pktStatus: %s [%d]).",
-                        getCellularPacketStatusString(pktStatus), pktStatus ) );
+                        CellularModule_GetCellularPacketStatusString(pktStatus), pktStatus ) );
             cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
         }
     }
@@ -2949,7 +2949,7 @@ static CellularError_t _SetRATScanSequence( CellularHandle_t cellularHandle,
         if( pktStatus != CELLULAR_PKT_STATUS_OK )
         {
             LogError( ( "_SetRATScanSequence: couldn't set RAT scan sequence (pktStatus: %s [%d]).",
-                        getCellularPacketStatusString(pktStatus), pktStatus ) );
+                        CellularModule_GetCellularPacketStatusString(pktStatus), pktStatus ) );
             cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
         }
     }
@@ -3108,7 +3108,7 @@ static CellularError_t _GetPsmUrcEnabled( CellularHandle_t cellularHandle,
         if( pktStatus != CELLULAR_PKT_STATUS_OK )
         {
             LogError( ( "_GetPsmUrcEnabled: couldn't retrieve PSM URC enable (pktStatus: %s [%d]).",
-                        getCellularPacketStatusString(pktStatus), pktStatus ) );
+                        CellularModule_GetCellularPacketStatusString(pktStatus), pktStatus ) );
             cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
         }
     }
@@ -3255,7 +3255,7 @@ static CellularError_t _GetTimeZoneReportingMode( CellularHandle_t cellularHandl
         if( pktStatus != CELLULAR_PKT_STATUS_OK )
         {
             LogError( ( "_GetTimeZoneReportingMode: couldn't retrieve time zone reporting mode (pktStatus: %s [%d]).",
-                        getCellularPacketStatusString(pktStatus), pktStatus ) );
+                        CellularModule_GetCellularPacketStatusString(pktStatus), pktStatus ) );
             cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
         }
     }

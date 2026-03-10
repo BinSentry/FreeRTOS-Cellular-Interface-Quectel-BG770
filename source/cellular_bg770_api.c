@@ -2910,12 +2910,13 @@ CellularError_t Cellular_GetRequestedPsmSettings( CellularHandle_t cellularHandl
         ( void ) memset( pPsmSettings, 0, sizeof( CellularPsmSettings_t ) );
         pPsmSettings->mode = 0xFF;
 
-        /* we should always query the PSMsettings from the network. */
+        /* we should always query the requested PSM settings. */
         pktStatus = _Cellular_AtcmdRequestWithCallback( pContext, atReqGetPsm );
 
         if( pktStatus != CELLULAR_PKT_STATUS_OK )
         {
-            LogError( ( "Cellular_GetRequestedPsmSettings: couldn't retrieve requested PSM settings" ) );
+            LogError( ( "Cellular_GetRequestedPsmSettings: couldn't retrieve requested PSM settings (pktStatus: %s [%d]).",
+                        CellularModule_GetCellularPacketStatusString(pktStatus), pktStatus ) );
             cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
         }
     }
@@ -2964,7 +2965,8 @@ CellularError_t Cellular_GetPsmConfigSettings( CellularHandle_t cellularHandle,
 
         if( pktStatus != CELLULAR_PKT_STATUS_OK )
         {
-            LogError( ( "Cellular_GetPsmSettings: couldn't retrieve PSM settings" ) );
+            LogError( ( "Cellular_GetPsmSettings: couldn't retrieve network PSM settings (pktStatus: %s [%d]).",
+                        CellularModule_GetCellularPacketStatusString(pktStatus), pktStatus ) );
             cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
         }
     }
@@ -3115,7 +3117,8 @@ CellularError_t Cellular_SetPsmSettings( CellularHandle_t cellularHandle,
 
             if( pktStatus != CELLULAR_PKT_STATUS_OK )
             {
-                LogError( ( "Cellular_SetPsmSettings: couldn't set PSM settings" ) );
+                LogError( ( "Cellular_SetPsmSettings: couldn't set PSM settings '%s' (pktStatus: %s [%d]).",
+                            cmdBuf, CellularModule_GetCellularPacketStatusString(pktStatus), pktStatus ) );
                 cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
             }
         }
@@ -4436,8 +4439,8 @@ CellularError_t Cellular_GetRfFunctionality( CellularHandle_t cellularHandle,
 CellularError_t Cellular_SimAndRfOff( CellularHandle_t cellularHandle )
 {
     CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
-    CellularError_t cellularStatus;
-    CellularPktStatus_t pktStatus;
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
     CellularAtReq_t atReq = { 0 };
 
     atReq.pAtCmd = "AT+CFUN=0";
@@ -4453,7 +4456,12 @@ CellularError_t Cellular_SimAndRfOff( CellularHandle_t cellularHandle )
     if( cellularStatus == CELLULAR_SUCCESS )
     {
         pktStatus = _Cellular_AtcmdRequestWithCallback( pContext, atReq );
-        cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
+        if( pktStatus != CELLULAR_PKT_STATUS_OK )
+        {
+            LogError( ( "Cellular_SimAndRfOff: couldn't set CFUN=0 (pktStatus: %s [%d]).",
+                        CellularModule_GetCellularPacketStatusString(pktStatus), pktStatus ) );
+            cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
+        }
     }
 
     return cellularStatus;
@@ -7144,7 +7152,8 @@ CellularError_t Cellular_SetServiceSelection( CellularHandle_t cellularHandle,
 
             if( pktStatus != CELLULAR_PKT_STATUS_OK )
             {
-                LogError( ( "Cellular_SetServiceSelection: couldn't set service selection, err: %d", pktStatus ) );
+                LogError( ( "Cellular_SetServiceSelection: couldn't set service selection (pktStatus: %s [%d]).",
+                            CellularModule_GetCellularPacketStatusString(pktStatus), pktStatus ) );
                 cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
             }
         }

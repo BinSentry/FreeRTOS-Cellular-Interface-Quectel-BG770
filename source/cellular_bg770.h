@@ -166,6 +166,8 @@ CellularError_t CellularModule_GetUEFunctionalityLevel( CellularHandle_t cellula
                                                         BG770UEFunctionalityLevel_t * pUEFunctionalityLevel,
                                                         uint32_t commandTimeoutMS );
 
+const char * CellularModule_GetCellularPacketStatusString( CellularPktStatus_t packetStatus );
+
 /* *INDENT-OFF* */
 #ifdef __cplusplus
     }
