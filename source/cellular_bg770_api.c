@@ -8424,7 +8424,7 @@ static bool _Cellular_ParseLTENetworkInfoPsRegStatus( char * pCeregPayload,
 
             if( atCoreStatus == CELLULAR_AT_SUCCESS )
             {
-                if( ( tempValue >= 0 ) && ( tempValue <= ( int32_t ) REGISTRATION_STATUS_MAX ) )
+                if( ( tempValue >= 0 ) && ( tempValue < ( int32_t ) REGISTRATION_STATUS_MAX ) )
                 {
                     registrationStatus = ( CellularNetworkRegistrationStatus_t ) tempValue;
                 }
