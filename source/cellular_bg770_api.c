@@ -190,6 +190,8 @@ static CellularPktStatus_t _Cellular_RecvFuncGetSimCardStatus( CellularContext_t
                                                                void * pData,
                                                                uint16_t dataLen );
 static CellularSimCardLockState_t _getSimLockState( char * pToken );
+static bool _tryParseCmeErrorCode( const CellularAtErrorResponse_t * pErrorResponse,
+                                   uint32_t * pCmeErrorCode );
 static CellularPktStatus_t _Cellular_RecvFuncGetSimLockStatus( CellularContext_t * pContext,
                                                                const CellularATCommandResponse_t * pAtResp,
                                                                void * pData,
@@ -5000,6 +5002,7 @@ CellularError_t Cellular_DeleteFileOnModem( CellularHandle_t cellularHandle,
     CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    CellularAtErrorResponse_t errorResponse = { 0 };
     char cmdBuf[ CELLULAR_AT_CMD_MAX_SIZE ] = { '\0' };
     CellularAtReq_t atReqDeleteFile =
     {
@@ -5009,6 +5012,7 @@ CellularError_t Cellular_DeleteFileOnModem( CellularHandle_t cellularHandle,
         NULL,
         NULL,
         0,
+        &errorResponse,
     };
 
     cellularStatus = _Cellular_CheckLibraryStatus( pContext );
@@ -5031,8 +5035,16 @@ CellularError_t Cellular_DeleteFileOnModem( CellularHandle_t cellularHandle,
         pktStatus = _Cellular_AtcmdRequestWithCallback(pContext, atReqDeleteFile);
 
         if (pktStatus != CELLULAR_PKT_STATUS_OK) {
-            LogError(("Cellular_DeleteFileOnModem: couldn't delete the file, cmdBuf:%s, PktRet: %d", cmdBuf, pktStatus));
-            cellularStatus = _Cellular_TranslatePktStatus(pktStatus);
+            uint32_t cmeErrorCode = 0;
+
+            if ((_tryParseCmeErrorCode(&errorResponse, &cmeErrorCode) == true) &&
+                (cmeErrorCode == BG770_CME_ERROR_FILE_NOT_FOUND)) {
+                LogInfo(("Cellular_DeleteFileOnModem: file not found, cmdBuf:%s", cmdBuf));
+                cellularStatus = CELLULAR_FILE_NOT_FOUND;
+            } else {
+                LogError(("Cellular_DeleteFileOnModem: couldn't delete the file, cmdBuf:%s, PktRet: %d", cmdBuf, pktStatus));
+                cellularStatus = _Cellular_TranslatePktStatus(pktStatus);
+            }
         }
     }
 
