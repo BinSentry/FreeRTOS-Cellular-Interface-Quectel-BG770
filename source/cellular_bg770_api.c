@@ -5188,34 +5188,59 @@ static CellularPktStatus_t _Cellular_RecvFileCRCs( CellularContext_t * pContext,
     return pktStatus;
 }
 
-/* Parses numeric format (AT+CMEE=1) "+CME ERROR: <err>" lines only, verbose format (AT+CMEE=2) is not parsed. */
+/* Parses numeric format (AT+CMEE=1) "+CME ERROR: <err>" lines only, verbose format (AT+CMEE=2) is not parsed.
+ * Parsing is bounded to the line buffer, truncated lines and lines not null terminated within the buffer are rejected. */
 static bool _tryParseCmeErrorCode( const CellularAtErrorResponse_t * pErrorResponse,
                                    uint32_t * pCmeErrorCode )
 {
     static const char CME_ERROR_PREFIX[] = "+CME ERROR:";
     static const size_t CME_ERROR_PREFIX_LENGTH = sizeof( CME_ERROR_PREFIX ) - 1U;
     bool parseStatus = false;
+    const char * pLine = NULL;
+    size_t lineLength = 0;
 
-    if( ( pErrorResponse != NULL ) && ( pCmeErrorCode != NULL ) && ( pErrorResponse->received == true ) &&
-        ( strncmp( pErrorResponse->line, CME_ERROR_PREFIX, CME_ERROR_PREFIX_LENGTH ) == 0 ) )
+    if( ( pErrorResponse != NULL ) && ( pCmeErrorCode != NULL ) &&
+        ( pErrorResponse->received == true ) && ( pErrorResponse->truncated == false ) )
     {
-        const char * pCode = &pErrorResponse->line[ CME_ERROR_PREFIX_LENGTH ];
-        char * pEnd = NULL;
+        pLine = pErrorResponse->line;
+        lineLength = strnlen( pLine, sizeof( pErrorResponse->line ) );
+    }
 
-        while( *pCode == ' ' )
+    if( ( pLine != NULL ) &&
+        ( lineLength < sizeof( pErrorResponse->line ) ) &&
+        ( lineLength > CME_ERROR_PREFIX_LENGTH ) &&
+        ( strncmp( pLine, CME_ERROR_PREFIX, CME_ERROR_PREFIX_LENGTH ) == 0 ) )
+    {
+        size_t i = CME_ERROR_PREFIX_LENGTH;
+        uint32_t cmeErrorCode = 0;
+        bool digitFound = false;
+        bool overflow = false;
+
+        while( ( i < lineLength ) && ( pLine[ i ] == ' ' ) )
         {
-            pCode++;
+            i++;
         }
 
-        if( isdigit( ( unsigned char ) *pCode ) != 0 )
+        while( ( i < lineLength ) && ( isdigit( ( unsigned char ) pLine[ i ] ) != 0 ) )
         {
-            const unsigned long cmeErrorCode = strtoul( pCode, &pEnd, 10 );
+            const uint32_t digit = ( uint32_t ) ( pLine[ i ] - '0' );
 
-            if( ( pEnd != NULL ) && ( *pEnd == '\0' ) )
+            if( cmeErrorCode > ( ( UINT32_MAX - digit ) / 10U ) )
             {
-                *pCmeErrorCode = ( uint32_t ) cmeErrorCode;
-                parseStatus = true;
+                overflow = true;
+                break;
             }
+
+            cmeErrorCode = ( cmeErrorCode * 10U ) + digit;
+            digitFound = true;
+            i++;
+        }
+
+        /* The remainder of the line must be entirely the numeric error code. */
+        if( ( digitFound == true ) && ( overflow == false ) && ( i == lineLength ) )
+        {
+            *pCmeErrorCode = cmeErrorCode;
+            parseStatus = true;
         }
     }
 
