@@ -65,6 +65,9 @@
 
 #define ENABLE_MODULE_UE_RETRY_TIMEOUT_MS   ( 18000U )   /* observed at least 17113 ms */
 
+/* +CME ERROR codes for file AT commands (Quectel BG77xA-GL&BG95xA-GL FILE Application Note V1.3) */
+#define BG770_CME_ERROR_FILE_NOT_FOUND     ( 405UL )
+
 #include <cellular_types.h>
 #include "cellular_platform.h"
 #include "cellular_common.h"

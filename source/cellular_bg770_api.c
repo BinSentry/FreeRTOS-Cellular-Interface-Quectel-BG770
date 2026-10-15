@@ -5188,6 +5188,40 @@ static CellularPktStatus_t _Cellular_RecvFileCRCs( CellularContext_t * pContext,
     return pktStatus;
 }
 
+/* Parses numeric format (AT+CMEE=1) "+CME ERROR: <err>" lines only, verbose format (AT+CMEE=2) is not parsed. */
+static bool _tryParseCmeErrorCode( const CellularAtErrorResponse_t * pErrorResponse,
+                                   uint32_t * pCmeErrorCode )
+{
+    static const char CME_ERROR_PREFIX[] = "+CME ERROR:";
+    static const size_t CME_ERROR_PREFIX_LENGTH = sizeof( CME_ERROR_PREFIX ) - 1U;
+    bool parseStatus = false;
+
+    if( ( pErrorResponse != NULL ) && ( pCmeErrorCode != NULL ) && ( pErrorResponse->received == true ) &&
+        ( strncmp( pErrorResponse->line, CME_ERROR_PREFIX, CME_ERROR_PREFIX_LENGTH ) == 0 ) )
+    {
+        const char * pCode = &pErrorResponse->line[ CME_ERROR_PREFIX_LENGTH ];
+        char * pEnd = NULL;
+
+        while( *pCode == ' ' )
+        {
+            pCode++;
+        }
+
+        if( isdigit( ( unsigned char ) *pCode ) != 0 )
+        {
+            const unsigned long cmeErrorCode = strtoul( pCode, &pEnd, 10 );
+
+            if( ( pEnd != NULL ) && ( *pEnd == '\0' ) )
+            {
+                *pCmeErrorCode = ( uint32_t ) cmeErrorCode;
+                parseStatus = true;
+            }
+        }
+    }
+
+    return parseStatus;
+}
+
 CellularError_t Cellular_GetModemFileCRC32( CellularHandle_t cellularHandle,
                                             const char * pcFilename,
                                             uint32_t * crc32 )
@@ -5196,6 +5230,7 @@ CellularError_t Cellular_GetModemFileCRC32( CellularHandle_t cellularHandle,
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
     BG770FileCRCs_t fileCRCs = { 0 };
+    CellularAtErrorResponse_t errorResponse = { 0 };
     char cmdBuf[ CELLULAR_AT_CMD_MAX_SIZE ] = { '\0' };
     CellularAtReq_t atReqGetFileCRCs =
     {
@@ -5205,6 +5240,7 @@ CellularError_t Cellular_GetModemFileCRC32( CellularHandle_t cellularHandle,
         _Cellular_RecvFileCRCs,
         &fileCRCs,
         sizeof(BG770FileCRCs_t),
+        &errorResponse,
     };
 
     cellularStatus = _Cellular_CheckLibraryStatus( pContext );
@@ -5231,8 +5267,19 @@ CellularError_t Cellular_GetModemFileCRC32( CellularHandle_t cellularHandle,
 
         if( pktStatus != CELLULAR_PKT_STATUS_OK )
         {
-            LogError( ( "Cellular_GetModemFileCRC32: couldn't get the file CRC32, cmdBuf:%s, PktRet: %d", cmdBuf, pktStatus ) );
-            cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
+            uint32_t cmeErrorCode = 0;
+
+            if( ( _tryParseCmeErrorCode( &errorResponse, &cmeErrorCode ) == true ) &&
+                ( cmeErrorCode == BG770_CME_ERROR_FILE_NOT_FOUND ) )
+            {
+                LogWarn( ( "Cellular_GetModemFileCRC32: file not found, cmdBuf:%s", cmdBuf ) );
+                cellularStatus = CELLULAR_FILE_NOT_FOUND;
+            }
+            else
+            {
+                LogError( ( "Cellular_GetModemFileCRC32: couldn't get the file CRC32, cmdBuf:%s, PktRet: %d", cmdBuf, pktStatus ) );
+                cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
+            }
         }
     }
 
