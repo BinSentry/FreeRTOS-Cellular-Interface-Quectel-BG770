@@ -683,6 +683,23 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
             }
         }
 
+        if( cellularStatus == CELLULAR_SUCCESS )
+        {
+            /* Numeric +CME ERROR codes, the file commands depend on them (see _tryParseCmeErrorCode) - this is the
+             * factory default and is not saved to user profile, don't need to perform read before write. */
+            atReqGetNoResult.pAtCmd = "AT+CMEE=1";
+            cellularStatus = sendAtCommandWithRetryTimeout( pContext, &atReqGetNoResult );
+            if( cellularStatus == CELLULAR_SUCCESS )
+            {
+                LogInfo( ( "Cellular_ModuleEnableUE: '%s' command success.", atReqGetNoResult.pAtCmd ) );
+            }
+            else
+            {
+                LogError( ( "Cellular_ModuleEnableUE: '%s' command failed (err: %s [%d]).",
+                            atReqGetNoResult.pAtCmd, getCellularErrorString(cellularStatus), cellularStatus ) );
+            }
+        }
+
 #ifndef CELLULAR_CONFIG_DISABLE_FLOW_CONTROL
         if( cellularStatus == CELLULAR_SUCCESS )
         {
