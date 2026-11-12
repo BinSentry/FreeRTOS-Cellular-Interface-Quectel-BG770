@@ -32,10 +32,8 @@
 #define TEST_QFDEL_COMMAND       "AT+QFDEL=\"" TEST_FILE_NAME "\""
 #define TEST_CRC32_SENTINEL      ( 0xA5A5A5A5UL )
 
-/* Not declared by the test platform headers, used by code paths these tests don't reach. */
-void vTaskDelay( TickType_t xTicksToDelay );
-BaseType_t xQueueReset( QueueHandle_t xQueue );
-int debugASSERT( int condition );
+/* Prototypes of the definitions below, shared with the module's compile. */
+#include "cellular_bg770_test_platform.h"
 
 static CellularContext_t context;
 

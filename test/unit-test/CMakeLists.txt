@@ -47,6 +47,7 @@ list(APPEND real_include_directories
 
 # list the directories your test needs to include
 list(APPEND test_include_directories
+            ${CMAKE_CURRENT_LIST_DIR}           # the generated test runner copies the test's includes
             ${CELLULAR_TEST_DIRS}
             ${CELLULAR_TEST_DIRS}/logging
             ${BG770_SOURCE}
@@ -79,6 +80,12 @@ create_real_library(${real_name}
                     "${real_source_files}"
                     "${real_include_directories}"
                     "${mock_name}"
+        )
+
+# The module calls FreeRTOS and BinSentry functions the FreeRTOS-Cellular-Interface test platform header doesn't
+# declare, force-include their prototypes so the module compiles without implicit declarations.
+target_compile_options(${real_name} PRIVATE
+            "SHELL:-include ${CMAKE_CURRENT_LIST_DIR}/cellular_bg770_test_platform.h"
         )
 
 list(APPEND utest_link_list
