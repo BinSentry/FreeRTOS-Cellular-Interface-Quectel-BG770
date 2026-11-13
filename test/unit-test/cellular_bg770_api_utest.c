@@ -10,6 +10,9 @@
 
 #include <string.h>
 #include <stdbool.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <ctype.h>
 
 #include "unity.h"
 
@@ -44,6 +47,11 @@ static bool errorResponseTruncated = false;
 static char errorResponseLine[ CELLULAR_AT_ERROR_RESPONSE_MAX_LENGTH ];
 static const char * pExpectedAtCmd = NULL;
 
+/* The response line the mocked AT command request delivers to the request's callback on success, NULL for none.
+ * Copied to a writable buffer first since the response parsers modify the line in place. */
+static const char * pResponseLine = NULL;
+static char responseLineBuffer[ 64 ];
+
 /* ============================   UNITY FIXTURES ============================ */
 
 /* Called before each test method. */
@@ -55,6 +63,7 @@ void setUp()
     errorResponseTruncated = false;
     memset( errorResponseLine, 0, sizeof( errorResponseLine ) );
     pExpectedAtCmd = NULL;
+    pResponseLine = NULL;
 }
 
 /* Called after each test method. */
@@ -225,8 +234,194 @@ static CellularPktStatus_t _Cellular_AtcmdRequestWithCallback_ModemResponse( Cel
         atReq.pErrorResponse->truncated = errorResponseTruncated;
         memcpy( atReq.pErrorResponse->line, errorResponseLine, sizeof( atReq.pErrorResponse->line ) );
     }
+    else if( ( pResponseLine != NULL ) && ( atReq.respCallback != NULL ) )
+    {
+        /* Deliver the response line to the request's callback the way the packet handler does, the request's
+         * status is the callback's. */
+        CellularATCommandLine_t responseItem = { .pNext = NULL, .pLine = responseLineBuffer };
+        CellularATCommandResponse_t response = { .status = true, .pItm = &responseItem };
+
+        TEST_ASSERT_TRUE( strlen( pResponseLine ) < sizeof( responseLineBuffer ) );
+        ( void ) strcpy( responseLineBuffer, pResponseLine );
+
+        return atReq.respCallback( pContext, &response, atReq.pData, atReq.dataLen );
+    }
 
     return requestPktStatus;
+}
+
+/* ========================================================================== */
+
+/* cellular_at_core.h is mocked, these stubs give the response parsers the real functions' behaviour for the
+ * well-formed and malformed lines the tests use (see cellular_at_core.c). */
+
+static CellularATError_t _Cellular_ATRemovePrefix_Real( char ** ppString,
+                                                       int cmock_num_calls )
+{
+    char * pColon = NULL;
+
+    ( void ) cmock_num_calls;
+
+    if( ( ppString == NULL ) || ( *ppString == NULL ) )
+    {
+        return CELLULAR_AT_BAD_PARAMETER;
+    }
+
+    pColon = strchr( *ppString, ':' );
+
+    if( pColon == NULL )
+    {
+        return CELLULAR_AT_BAD_PARAMETER;
+    }
+
+    *ppString = pColon + 1;
+    return CELLULAR_AT_SUCCESS;
+}
+
+static CellularATError_t _removeAllMatching( char * pString,
+                                             int ( * matches )( int ) )
+{
+    char * pRead = pString;
+    char * pWrite = pString;
+
+    if( pString == NULL )
+    {
+        return CELLULAR_AT_BAD_PARAMETER;
+    }
+
+    for( ; *pRead != '\0'; pRead++ )
+    {
+        if( matches( ( unsigned char ) *pRead ) == 0 )
+        {
+            *pWrite = *pRead;
+            pWrite++;
+        }
+    }
+
+    *pWrite = '\0';
+    return CELLULAR_AT_SUCCESS;
+}
+
+static int _isDoubleQuote( int c )
+{
+    return ( c == '"' ) ? 1 : 0;
+}
+
+static CellularATError_t _Cellular_ATRemoveAllDoubleQuote_Real( char * pString,
+                                                               int cmock_num_calls )
+{
+    ( void ) cmock_num_calls;
+    return _removeAllMatching( pString, _isDoubleQuote );
+}
+
+static CellularATError_t _Cellular_ATRemoveAllWhiteSpaces_Real( char * pString,
+                                                               int cmock_num_calls )
+{
+    ( void ) cmock_num_calls;
+    return _removeAllMatching( pString, isspace );
+}
+
+static CellularATError_t _Cellular_ATGetNextTok_Real( char ** ppString,
+                                                     char ** ppTokOutput,
+                                                     int cmock_num_calls )
+{
+    char * pToken = NULL;
+    char * pDelimiter = NULL;
+
+    ( void ) cmock_num_calls;
+
+    if( ( ppString == NULL ) || ( *ppString == NULL ) || ( ppTokOutput == NULL ) )
+    {
+        return CELLULAR_AT_BAD_PARAMETER;
+    }
+
+    pToken = *ppString;
+
+    if( *pToken == '\0' )
+    {
+        return CELLULAR_AT_BAD_PARAMETER;
+    }
+
+    /* Terminate this token at the delimiter and move the string on past it, or to its end. */
+    pDelimiter = strchr( pToken, ',' );
+
+    if( pDelimiter != NULL )
+    {
+        *pDelimiter = '\0';
+        *ppString = pDelimiter + 1;
+    }
+    else
+    {
+        *ppString = pToken + strlen( pToken );
+    }
+
+    *ppTokOutput = pToken;
+    return CELLULAR_AT_SUCCESS;
+}
+
+static CellularATError_t _Cellular_ATStrtoui_Real( const char * pStr,
+                                                  int32_t base,
+                                                  uint32_t * pResult,
+                                                  int cmock_num_calls )
+{
+    char * pEnd = NULL;
+    long long value = 0;
+
+    ( void ) cmock_num_calls;
+
+    if( ( pStr == NULL ) || ( pResult == NULL ) )
+    {
+        return CELLULAR_AT_BAD_PARAMETER;
+    }
+
+    value = strtoll( pStr, &pEnd, base );
+
+    if( ( pEnd == pStr ) || ( *pEnd != '\0' ) || ( value < 0 ) || ( value > ( long long ) UINT32_MAX ) )
+    {
+        return CELLULAR_AT_ERROR;
+    }
+
+    *pResult = ( uint32_t ) value;
+    return CELLULAR_AT_SUCCESS;
+}
+
+static CellularATError_t _Cellular_ATStrtoi_Real( const char * pStr,
+                                                 int32_t base,
+                                                 int32_t * pResult,
+                                                 int cmock_num_calls )
+{
+    char * pEnd = NULL;
+    long long value = 0;
+
+    ( void ) cmock_num_calls;
+
+    if( ( pStr == NULL ) || ( pResult == NULL ) )
+    {
+        return CELLULAR_AT_BAD_PARAMETER;
+    }
+
+    value = strtoll( pStr, &pEnd, base );
+
+    if( ( pEnd == pStr ) || ( *pEnd != '\0' ) || ( value < INT32_MIN ) || ( value > INT32_MAX ) )
+    {
+        return CELLULAR_AT_ERROR;
+    }
+
+    *pResult = ( int32_t ) value;
+    return CELLULAR_AT_SUCCESS;
+}
+
+/* Sets up the modem to answer the next request with pLine, parsed by the real-behaviour stubs above. */
+static void _setModemResponse( const char * pLine )
+{
+    requestPktStatus = CELLULAR_PKT_STATUS_OK;
+    pResponseLine = pLine;
+    Cellular_ATRemovePrefix_StubWithCallback( _Cellular_ATRemovePrefix_Real );
+    Cellular_ATRemoveAllDoubleQuote_StubWithCallback( _Cellular_ATRemoveAllDoubleQuote_Real );
+    Cellular_ATRemoveAllWhiteSpaces_StubWithCallback( _Cellular_ATRemoveAllWhiteSpaces_Real );
+    Cellular_ATGetNextTok_StubWithCallback( _Cellular_ATGetNextTok_Real );
+    Cellular_ATStrtoui_StubWithCallback( _Cellular_ATStrtoui_Real );
+    Cellular_ATStrtoi_StubWithCallback( _Cellular_ATStrtoi_Real );
 }
 
 /* Sets up the modem to fail the next request with a received, untruncated error line. */
@@ -279,16 +474,67 @@ static void _assertGetModemFileCRC32FileNotFound( void )
 /* ========================================================================== */
 
 /**
- * @brief Test that a successful AT+QFCRC request returns success.
+ * @brief Test that a successful AT+QFCRC request returns success and the CRC32 parsed from the response.
  */
 void test_Cellular_GetModemFileCRC32_Success( void )
 {
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
     uint32_t crc32 = TEST_CRC32_SENTINEL;
 
+    _setModemResponse( "+QFCRC: D5E1FF1D,1A2B,3C4D" );
+
     cellularStatus = _getModemFileCRC32( &crc32, false );
 
     TEST_ASSERT_EQUAL( CELLULAR_SUCCESS, cellularStatus );
+    TEST_ASSERT_EQUAL_HEX32( 0xD5E1FF1DUL, crc32 );
+}
+
+/**
+ * @brief Test that the documented response for an empty file ("+QFCRC: 0,0,0") is a success with CRC32 0.
+ */
+void test_Cellular_GetModemFileCRC32_Empty_File( void )
+{
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+    uint32_t crc32 = TEST_CRC32_SENTINEL;
+
+    _setModemResponse( "+QFCRC: 0,0,0" );
+
+    cellularStatus = _getModemFileCRC32( &crc32, false );
+
+    TEST_ASSERT_EQUAL( CELLULAR_SUCCESS, cellularStatus );
+    TEST_ASSERT_EQUAL_HEX32( 0, crc32 );
+}
+
+/**
+ * @brief Test that a response with a missing CRC is a failure, not a file not found, and reports CRC32 0.
+ */
+void test_Cellular_GetModemFileCRC32_Response_Missing_Token( void )
+{
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+    uint32_t crc32 = TEST_CRC32_SENTINEL;
+
+    _setModemResponse( "+QFCRC: D5E1FF1D,1A2B" );
+
+    cellularStatus = _getModemFileCRC32( &crc32, true );
+
+    TEST_ASSERT_EQUAL( CELLULAR_INTERNAL_FAILURE, cellularStatus );
+    TEST_ASSERT_EQUAL_HEX32( 0, crc32 );
+}
+
+/**
+ * @brief Test that a response whose CRC32 isn't hexadecimal is a failure, not a file not found.
+ */
+void test_Cellular_GetModemFileCRC32_Response_Not_Hex( void )
+{
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+    uint32_t crc32 = TEST_CRC32_SENTINEL;
+
+    _setModemResponse( "+QFCRC: XYZ,1A2B,3C4D" );
+
+    cellularStatus = _getModemFileCRC32( &crc32, true );
+
+    TEST_ASSERT_EQUAL( CELLULAR_INTERNAL_FAILURE, cellularStatus );
+    TEST_ASSERT_EQUAL_HEX32( 0, crc32 );
 }
 
 /**
