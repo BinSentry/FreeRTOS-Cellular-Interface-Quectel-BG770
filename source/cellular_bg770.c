@@ -594,7 +594,8 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
         NULL,
         NULL,
         NULL,
-        0
+        0,
+        NULL
     };
     // NOTE: commands need to use this configuration until echo is turned off
     CellularAtReq_t atReqGetWithResult =
@@ -604,7 +605,8 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
         NULL,
         NULL,
         NULL,
-        0
+        0,
+        NULL
     };
 
     if( pContext != NULL )
@@ -671,6 +673,23 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
         {
             /* Disable DTR function - command is not automatically saved to user profile, don't need to perform read before write. */
             atReqGetNoResult.pAtCmd = "AT&D0";
+            cellularStatus = sendAtCommandWithRetryTimeout( pContext, &atReqGetNoResult );
+            if( cellularStatus == CELLULAR_SUCCESS )
+            {
+                LogInfo( ( "Cellular_ModuleEnableUE: '%s' command success.", atReqGetNoResult.pAtCmd ) );
+            }
+            else
+            {
+                LogError( ( "Cellular_ModuleEnableUE: '%s' command failed (err: %s [%d]).",
+                            atReqGetNoResult.pAtCmd, getCellularErrorString(cellularStatus), cellularStatus ) );
+            }
+        }
+
+        if( cellularStatus == CELLULAR_SUCCESS )
+        {
+            /* Numeric +CME ERROR codes, the file commands depend on them (see _tryParseCmeErrorCode) - this is the
+             * factory default and is not saved to user profile, don't need to perform read before write. */
+            atReqGetNoResult.pAtCmd = "AT+CMEE=1";
             cellularStatus = sendAtCommandWithRetryTimeout( pContext, &atReqGetNoResult );
             if( cellularStatus == CELLULAR_SUCCESS )
             {
@@ -1068,7 +1087,8 @@ CellularError_t Cellular_ModuleEnableUrc( CellularContext_t * pContext )
         NULL,
         NULL,
         NULL,
-        0
+        0,
+        NULL
     };
     bool isPsmUrcEnabled = false;
     bool desiredIsPsmUrcEnabled = false;
@@ -1321,7 +1341,7 @@ static CellularError_t _GetLwM2MEnabled( CellularHandle_t cellularHandle,
     CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
-    CellularAtReq_t atReqGetLwM2MEnable =
+    const CellularAtReq_t atReqGetLwM2MEnable =
     {
         "AT+QCFG=\"lwm2m\"",
         CELLULAR_AT_WITH_PREFIX,
@@ -1329,6 +1349,7 @@ static CellularError_t _GetLwM2MEnabled( CellularHandle_t cellularHandle,
         _RecvFuncGetLwM2MEnable,
         pIsLwM2MEnabled,
         sizeof( bool ),
+        NULL
     };
 
     if( pIsLwM2MEnabled == NULL )
@@ -1536,7 +1557,7 @@ static CellularError_t _GetURCIndicationOption( CellularHandle_t cellularHandle,
     CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
-    CellularAtReq_t atReqGetURCIndicationOption =
+    const CellularAtReq_t atReqGetURCIndicationOption =
     {
         "AT+QURCCFG=\"urcport\"",
         CELLULAR_AT_WITH_PREFIX,
@@ -1544,6 +1565,7 @@ static CellularError_t _GetURCIndicationOption( CellularHandle_t cellularHandle,
         _RecvFuncGetURCIndicationOption,
         pURCIndicationOptionType,
         sizeof( BG770URCIndicationOptionType_t ),
+        NULL
     };
 
     if( pURCIndicationOptionType == NULL )
@@ -1580,7 +1602,7 @@ static CellularError_t _SetURCIndicationOption( CellularHandle_t cellularHandle,
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
     char cmdBuf[ CELLULAR_AT_CMD_MAX_SIZE ] = { '\0' };
-    CellularAtReq_t atReqSetURCIndicationOption =
+    const CellularAtReq_t atReqSetURCIndicationOption =
     {
         cmdBuf,
         CELLULAR_AT_NO_RESULT,
@@ -1588,6 +1610,7 @@ static CellularError_t _SetURCIndicationOption( CellularHandle_t cellularHandle,
         NULL,
         NULL,
         0,
+        NULL
     };
 
     if( urcIndicationOptionType != BG770_URC_INDICATION_OPTION_MAIN &&
@@ -1827,7 +1850,7 @@ static CellularError_t _GetFlowControlState( CellularHandle_t cellularHandle,
     CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
-    CellularAtReq_t atReqGetFlowControlState =
+    const CellularAtReq_t atReqGetFlowControlState =
     {
         "AT+IFC?",
         CELLULAR_AT_WITH_PREFIX,
@@ -1835,6 +1858,7 @@ static CellularError_t _GetFlowControlState( CellularHandle_t cellularHandle,
         _RecvFuncGetFlowControlState,
         pFlowControlState,
         sizeof( BG770FlowControlState_t ),
+        NULL
     };
 
     if( pFlowControlState == NULL )
@@ -1865,7 +1889,7 @@ static CellularError_t _SetFlowControlState( CellularHandle_t cellularHandle,
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
     char cmdBuf[ CELLULAR_AT_CMD_MAX_SIZE ] = { '\0' };
-    CellularAtReq_t atReqSetFlowControlState =
+    const CellularAtReq_t atReqSetFlowControlState =
     {
         cmdBuf,
         CELLULAR_AT_NO_RESULT,
@@ -1873,6 +1897,7 @@ static CellularError_t _SetFlowControlState( CellularHandle_t cellularHandle,
         NULL,
         NULL,
         0,
+        NULL
     };
 
     if( ( flowControlState.dceByDTE != BG770_FLOW_CONTROL_TYPE_NONE &&
@@ -2056,7 +2081,7 @@ CellularError_t CellularModule_GetUEFunctionalityLevel( CellularHandle_t cellula
     CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
-    CellularAtReq_t atReqGetUEFunctionalityLevel =
+    const CellularAtReq_t atReqGetUEFunctionalityLevel =
     {
         "AT+CFUN?",
         CELLULAR_AT_WITH_PREFIX,
@@ -2064,6 +2089,7 @@ CellularError_t CellularModule_GetUEFunctionalityLevel( CellularHandle_t cellula
         _RecvFuncGetUEFunctionalityLevel,
         pUEFunctionalityLevel,
         sizeof( BG770UEFunctionalityLevel_t ),
+        NULL
     };
 
     if( pUEFunctionalityLevel == NULL )
@@ -2131,6 +2157,7 @@ static CellularError_t _SetUEFunctionalityLevel( CellularHandle_t cellularHandle
         NULL,
         NULL,
         0,
+        NULL
     };
 
     if( ueFunctionalityLevel != BG770_UE_FUNCTIONALITY_LEVEL_MINIMUM &&
@@ -2352,7 +2379,7 @@ static CellularError_t _GetNetworkCategorySearchMode( CellularHandle_t cellularH
     CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
-    CellularAtReq_t atReqGetNetworkCategorySearchMode =
+    const CellularAtReq_t atReqGetNetworkCategorySearchMode =
     {
         "AT+QCFG=\"iotopmode\"",
         CELLULAR_AT_WITH_PREFIX,
@@ -2360,6 +2387,7 @@ static CellularError_t _GetNetworkCategorySearchMode( CellularHandle_t cellularH
         _RecvFuncGetNetworkCategorySearchMode,
         pNetworkCategorySearchMode,
         sizeof( BG770NetworkCategorySearchMode_t ),
+        NULL
     };
 
     if( pNetworkCategorySearchMode == NULL )
@@ -2398,7 +2426,7 @@ static CellularError_t _SetNetworkCategorySearchMode( CellularHandle_t cellularH
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
     char cmdBuf[ CELLULAR_AT_CMD_MAX_SIZE ] = { '\0' };
-    CellularAtReq_t atReqSetNetworkCategorySearchMode =
+    const CellularAtReq_t atReqSetNetworkCategorySearchMode =
     {
         cmdBuf,
         CELLULAR_AT_NO_RESULT,
@@ -2406,6 +2434,7 @@ static CellularError_t _SetNetworkCategorySearchMode( CellularHandle_t cellularH
         NULL,
         NULL,
         0,
+        NULL
     };
 
     if( networkCategorySearchMode != BG770_NETWORK_CATEGORY_SEARCH_MODE_eMTC &&
@@ -2870,7 +2899,7 @@ static CellularError_t _GetRATScanSequence( CellularHandle_t cellularHandle,
     CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
-    CellularAtReq_t atReqGetRATScanSequence =
+    const CellularAtReq_t atReqGetRATScanSequence =
     {
         "AT+QCFG=\"nwscanseq\"",
         CELLULAR_AT_WITH_PREFIX,
@@ -2878,6 +2907,7 @@ static CellularError_t _GetRATScanSequence( CellularHandle_t cellularHandle,
         _RecvFuncGetRATScanSequence,
         pRATScanSequence,
         sizeof( BG770RATScanSequence_t ),
+        NULL
     };
 
     if( pRATScanSequence == NULL )
@@ -2916,7 +2946,7 @@ static CellularError_t _SetRATScanSequence( CellularHandle_t cellularHandle,
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
     char cmdBuf[ BG770_NWSCANSEQ_CMD_MAX_SIZE ] = { '\0' };
-    CellularAtReq_t atReqSetRATScanSequence =
+    const CellularAtReq_t atReqSetRATScanSequence =
     {
         cmdBuf,
         CELLULAR_AT_NO_RESULT,
@@ -2924,6 +2954,7 @@ static CellularError_t _SetRATScanSequence( CellularHandle_t cellularHandle,
         NULL,
         NULL,
         0,
+        NULL
     };
     char ratScanSequenceString[7];
     bool stringBuildSuccess = tryBuildRATScanSequenceString( &ratScanSequence, ratScanSequenceString,
@@ -3087,7 +3118,7 @@ static CellularError_t _GetPsmUrcEnabled( CellularHandle_t cellularHandle,
     CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
-    CellularAtReq_t atReqGetLwM2MEnable =
+    const CellularAtReq_t atReqGetLwM2MEnable =
     {
         "AT+QCFG=\"psm/urc\"",
         CELLULAR_AT_WITH_PREFIX,
@@ -3095,6 +3126,7 @@ static CellularError_t _GetPsmUrcEnabled( CellularHandle_t cellularHandle,
         _RecvFuncGetPsmUrcEnable,
         pIsPsmUrcEnabled,
         sizeof( bool ),
+        NULL
     };
 
     if( pIsPsmUrcEnabled == NULL )
@@ -3234,7 +3266,7 @@ static CellularError_t _GetTimeZoneReportingMode( CellularHandle_t cellularHandl
     CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
-    CellularAtReq_t atReqGetTimeZoneReportingMode =
+    const CellularAtReq_t atReqGetTimeZoneReportingMode =
     {
         "AT+CTZR?",
         CELLULAR_AT_WITH_PREFIX,
@@ -3242,6 +3274,7 @@ static CellularError_t _GetTimeZoneReportingMode( CellularHandle_t cellularHandl
         _RecvFuncGetTimeZoneReportingMode,
         pTimeZoneReportingMode,
         sizeof( BG770TimeZoneReportingMode_t ),
+        NULL
     };
 
     if( pTimeZoneReportingMode == NULL )
