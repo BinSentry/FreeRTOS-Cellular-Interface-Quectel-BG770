@@ -4446,6 +4446,7 @@ CellularError_t Cellular_GetRfFunctionality( CellularHandle_t cellularHandle,
 
                 default:
                     debugASSERT(false);
+                    /* intentional fall through */
                 case BG770_UE_FUNCTIONALITY_LEVEL_UNKNOWN:
                     cellularStatus = CELLULAR_INTERNAL_FAILURE;
                     break;
