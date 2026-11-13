@@ -50,7 +50,9 @@
 /* AT Command timeout for SSL Socket connection */
 #define SSL_SOCKET_CONNECT_PACKET_REQ_TIMEOUT_MS   ( SOCKET_CONNECT_PACKET_REQ_TIMEOUT_MS + SSL_NEGOTIATION_MAX_TIMEOUT_MS )
 
-#define PACKET_REQ_TIMEOUT_MS                      ( 5000UL )
+/* AT Command timeout for the data phase of socket send and file upload, distinct from the library's internal
+ * PACKET_REQ_TIMEOUT_MS (CELLULAR_COMMON_AT_COMMAND_TIMEOUT_MS) */
+#define BG770_PACKET_REQ_TIMEOUT_MS                ( 5000UL )
 
 /* AT Command timeout for Socket disconnection */
 #define SOCKET_DISCONNECT_PACKET_REQ_TIMEOUT_MS    ( 12000UL )

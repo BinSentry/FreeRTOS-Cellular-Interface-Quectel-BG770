@@ -4163,7 +4163,7 @@ CellularError_t Cellular_SocketSend( CellularHandle_t cellularHandle,
 
         pktStatus = _Cellular_AtcmdDataSend( pContext, atReqSocketSend, atDataReqSocketSend,
                                              socketSendDataPrefix, NULL,
-                                             PACKET_REQ_TIMEOUT_MS, sendTimeout, 0U );
+                                             BG770_PACKET_REQ_TIMEOUT_MS, sendTimeout, 0U );
 
         if( pktStatus != CELLULAR_PKT_STATUS_OK )
         {
@@ -5006,7 +5006,7 @@ CellularError_t Cellular_UploadFileToModem( CellularHandle_t cellularHandle,
 
         pktStatus = _Cellular_AtcmdDataSend( pContext, atReqSocketSend, atDataReqSocketSend,
                                              fileUploadDataPrefix, NULL,
-                                             PACKET_REQ_TIMEOUT_MS, PACKET_REQ_TIMEOUT_MS, 0U );
+                                             BG770_PACKET_REQ_TIMEOUT_MS, BG770_PACKET_REQ_TIMEOUT_MS, 0U );
 
         if( pktStatus != CELLULAR_PKT_STATUS_OK )
         {
