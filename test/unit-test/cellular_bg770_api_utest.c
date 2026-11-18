@@ -810,6 +810,29 @@ void test_Cellular_GetModemFileCRC32_Error_Response_Not_Received( void )
 }
 
 /**
+ * @brief Test that a request the modem didn't answer is passed through as the library's translation of the
+ * timeout (CELLULAR_TIMEOUT), with CRC32 0: the driver relies on it to report nothing is known about the file.
+ */
+void test_Cellular_GetModemFileCRC32_No_Answer_Is_A_Timeout( void )
+{
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+    uint32_t crc32 = TEST_CRC32_SENTINEL;
+
+    requestPktStatus = CELLULAR_PKT_STATUS_TIMED_OUT;
+    errorResponseReceived = false;
+
+    _Cellular_CheckLibraryStatus_ExpectAndReturn( &context, CELLULAR_SUCCESS );
+    _Cellular_AtcmdRequestWithCallback_Stub( _Cellular_AtcmdRequestWithCallback_ModemResponse );
+    pExpectedAtCmd = TEST_QFCRC_COMMAND;
+    _Cellular_TranslatePktStatus_ExpectAndReturn( CELLULAR_PKT_STATUS_TIMED_OUT, CELLULAR_TIMEOUT );
+
+    cellularStatus = Cellular_GetModemFileCRC32( &context, TEST_FILE_NAME, &crc32 );
+
+    TEST_ASSERT_EQUAL( CELLULAR_TIMEOUT, cellularStatus );
+    TEST_ASSERT_EQUAL_HEX32( 0, crc32 );
+}
+
+/**
  * @brief Test that a truncated error line is rejected, the code could have more digits.
  */
 void test_Cellular_GetModemFileCRC32_Error_Response_Truncated( void )
@@ -912,6 +935,27 @@ void test_Cellular_DeleteFileOnModem_Cme_Error_Other_Code( void )
 /**
  * @brief Test that a plain ERROR final result is a modem error response, not file not found.
  */
+/**
+ * @brief Test that a delete the modem didn't answer is passed through as the library's translation of the timeout
+ * (CELLULAR_TIMEOUT), not as a modem error response.
+ */
+void test_Cellular_DeleteFileOnModem_No_Answer_Is_A_Timeout( void )
+{
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+
+    requestPktStatus = CELLULAR_PKT_STATUS_TIMED_OUT;
+    errorResponseReceived = false;
+
+    _Cellular_CheckLibraryStatus_ExpectAndReturn( &context, CELLULAR_SUCCESS );
+    _Cellular_AtcmdRequestWithCallback_Stub( _Cellular_AtcmdRequestWithCallback_ModemResponse );
+    pExpectedAtCmd = TEST_QFDEL_COMMAND;
+    _Cellular_TranslatePktStatus_ExpectAndReturn( CELLULAR_PKT_STATUS_TIMED_OUT, CELLULAR_TIMEOUT );
+
+    cellularStatus = Cellular_DeleteFileOnModem( &context, TEST_FILE_NAME );
+
+    TEST_ASSERT_EQUAL( CELLULAR_TIMEOUT, cellularStatus );
+}
+
 void test_Cellular_DeleteFileOnModem_Plain_Error( void )
 {
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
