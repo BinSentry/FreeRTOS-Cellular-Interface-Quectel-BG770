@@ -347,6 +347,8 @@ static const char * getCellularErrorString( const CellularError_t cellularError 
             return "FILE_ALREADY_EXISTS";
         case CELLULAR_FILE_NOT_FOUND:
             return "FILE_NOT_FOUND";
+        case CELLULAR_MODEM_ERROR_RESPONSE:
+            return "MODEM_ERROR_RESPONSE";
         default:
             return "<invalid>";
     }

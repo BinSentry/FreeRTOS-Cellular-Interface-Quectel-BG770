@@ -450,7 +450,7 @@ static CellularError_t _getModemFileCRC32( uint32_t * pCrc32,
     return Cellular_GetModemFileCRC32( &context, TEST_FILE_NAME, pCrc32 );
 }
 
-/* The modem error must not be recognised as file not found, so the packet status is translated. */
+/* No error response was received from the modem, so the packet status is translated. */
 static void _assertGetModemFileCRC32ErrorTranslated( void )
 {
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
@@ -459,6 +459,17 @@ static void _assertGetModemFileCRC32ErrorTranslated( void )
     cellularStatus = _getModemFileCRC32( &crc32, true );
 
     TEST_ASSERT_EQUAL( CELLULAR_INTERNAL_FAILURE, cellularStatus );
+}
+
+/* The modem answered with an error final result that is not file not found, the packet status is not translated. */
+static void _assertGetModemFileCRC32ModemErrorResponse( void )
+{
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+    uint32_t crc32 = TEST_CRC32_SENTINEL;
+
+    cellularStatus = _getModemFileCRC32( &crc32, false );
+
+    TEST_ASSERT_EQUAL( CELLULAR_MODEM_ERROR_RESPONSE, cellularStatus );
 }
 
 static void _assertGetModemFileCRC32FileNotFound( void )
@@ -606,7 +617,7 @@ void test_Cellular_GetModemFileCRC32_Cme_Error_File_Not_Found_Max_Length_Line( v
 void test_Cellular_GetModemFileCRC32_Cme_Error_Other_Code( void )
 {
     _setModemErrorResponse( "+CME ERROR: 406" );
-    _assertGetModemFileCRC32ErrorTranslated();
+    _assertGetModemFileCRC32ModemErrorResponse();
 }
 
 /**
@@ -615,7 +626,7 @@ void test_Cellular_GetModemFileCRC32_Cme_Error_Other_Code( void )
 void test_Cellular_GetModemFileCRC32_Cme_Error_Code_Ending_In_405( void )
 {
     _setModemErrorResponse( "+CME ERROR: 1405" );
-    _assertGetModemFileCRC32ErrorTranslated();
+    _assertGetModemFileCRC32ModemErrorResponse();
 }
 
 /**
@@ -624,7 +635,7 @@ void test_Cellular_GetModemFileCRC32_Cme_Error_Code_Ending_In_405( void )
 void test_Cellular_GetModemFileCRC32_Cme_Error_Max_Code( void )
 {
     _setModemErrorResponse( "+CME ERROR: 4294967295" );
-    _assertGetModemFileCRC32ErrorTranslated();
+    _assertGetModemFileCRC32ModemErrorResponse();
 }
 
 /**
@@ -633,7 +644,7 @@ void test_Cellular_GetModemFileCRC32_Cme_Error_Max_Code( void )
 void test_Cellular_GetModemFileCRC32_Cme_Error_Code_Overflow( void )
 {
     _setModemErrorResponse( "+CME ERROR: 4294967701" );
-    _assertGetModemFileCRC32ErrorTranslated();
+    _assertGetModemFileCRC32ModemErrorResponse();
 }
 
 /**
@@ -642,7 +653,7 @@ void test_Cellular_GetModemFileCRC32_Cme_Error_Code_Overflow( void )
 void test_Cellular_GetModemFileCRC32_Cme_Error_Negative_Code( void )
 {
     _setModemErrorResponse( "+CME ERROR: -405" );
-    _assertGetModemFileCRC32ErrorTranslated();
+    _assertGetModemFileCRC32ModemErrorResponse();
 }
 
 /**
@@ -651,7 +662,7 @@ void test_Cellular_GetModemFileCRC32_Cme_Error_Negative_Code( void )
 void test_Cellular_GetModemFileCRC32_Cme_Error_Verbose_Format( void )
 {
     _setModemErrorResponse( "+CME ERROR: File not found" );
-    _assertGetModemFileCRC32ErrorTranslated();
+    _assertGetModemFileCRC32ModemErrorResponse();
 }
 
 /**
@@ -660,7 +671,7 @@ void test_Cellular_GetModemFileCRC32_Cme_Error_Verbose_Format( void )
 void test_Cellular_GetModemFileCRC32_Cme_Error_Trailing_Characters( void )
 {
     _setModemErrorResponse( "+CME ERROR: 405x" );
-    _assertGetModemFileCRC32ErrorTranslated();
+    _assertGetModemFileCRC32ModemErrorResponse();
 }
 
 /**
@@ -669,7 +680,7 @@ void test_Cellular_GetModemFileCRC32_Cme_Error_Trailing_Characters( void )
 void test_Cellular_GetModemFileCRC32_Cme_Error_Trailing_Space( void )
 {
     _setModemErrorResponse( "+CME ERROR: 405 " );
-    _assertGetModemFileCRC32ErrorTranslated();
+    _assertGetModemFileCRC32ModemErrorResponse();
 }
 
 /**
@@ -678,7 +689,7 @@ void test_Cellular_GetModemFileCRC32_Cme_Error_Trailing_Space( void )
 void test_Cellular_GetModemFileCRC32_Cme_Error_No_Code( void )
 {
     _setModemErrorResponse( "+CME ERROR:" );
-    _assertGetModemFileCRC32ErrorTranslated();
+    _assertGetModemFileCRC32ModemErrorResponse();
 }
 
 /**
@@ -687,7 +698,7 @@ void test_Cellular_GetModemFileCRC32_Cme_Error_No_Code( void )
 void test_Cellular_GetModemFileCRC32_Cme_Error_Only_Spaces( void )
 {
     _setModemErrorResponse( "+CME ERROR:   " );
-    _assertGetModemFileCRC32ErrorTranslated();
+    _assertGetModemFileCRC32ModemErrorResponse();
 }
 
 /**
@@ -696,7 +707,7 @@ void test_Cellular_GetModemFileCRC32_Cme_Error_Only_Spaces( void )
 void test_Cellular_GetModemFileCRC32_Cme_Error_Lower_Case_Prefix( void )
 {
     _setModemErrorResponse( "+cme error: 405" );
-    _assertGetModemFileCRC32ErrorTranslated();
+    _assertGetModemFileCRC32ModemErrorResponse();
 }
 
 /**
@@ -705,7 +716,7 @@ void test_Cellular_GetModemFileCRC32_Cme_Error_Lower_Case_Prefix( void )
 void test_Cellular_GetModemFileCRC32_Plain_Error( void )
 {
     _setModemErrorResponse( "ERROR" );
-    _assertGetModemFileCRC32ErrorTranslated();
+    _assertGetModemFileCRC32ModemErrorResponse();
 }
 
 /**
@@ -714,7 +725,7 @@ void test_Cellular_GetModemFileCRC32_Plain_Error( void )
 void test_Cellular_GetModemFileCRC32_Cms_Error( void )
 {
     _setModemErrorResponse( "+CMS ERROR: 405" );
-    _assertGetModemFileCRC32ErrorTranslated();
+    _assertGetModemFileCRC32ModemErrorResponse();
 }
 
 /**
@@ -734,7 +745,7 @@ void test_Cellular_GetModemFileCRC32_Error_Response_Truncated( void )
 {
     _setModemErrorResponse( "+CME ERROR: 405" );
     errorResponseTruncated = true;
-    _assertGetModemFileCRC32ErrorTranslated();
+    _assertGetModemFileCRC32ModemErrorResponse();
 }
 
 /**
@@ -753,7 +764,7 @@ void test_Cellular_GetModemFileCRC32_Error_Response_Not_Terminated( void )
             sizeof( errorResponseLine ) - ( sizeof( prefix ) - 1U ) );
     memcpy( &errorResponseLine[ sizeof( errorResponseLine ) - ( sizeof( code ) - 1U ) ], code, sizeof( code ) - 1U );
 
-    _assertGetModemFileCRC32ErrorTranslated();
+    _assertGetModemFileCRC32ModemErrorResponse();
 }
 
 /* ========================================================================== */
@@ -814,7 +825,7 @@ void test_Cellular_DeleteFileOnModem_Cme_Error_File_Not_Found( void )
 }
 
 /**
- * @brief Test that a different CME error code is translated, not mapped to file not found.
+ * @brief Test that a different CME error code is a modem error response, not file not found.
  */
 void test_Cellular_DeleteFileOnModem_Cme_Error_Other_Code( void )
 {
@@ -822,13 +833,13 @@ void test_Cellular_DeleteFileOnModem_Cme_Error_Other_Code( void )
 
     _setModemErrorResponse( "+CME ERROR: 406" );
 
-    cellularStatus = _deleteFileOnModem( true );
+    cellularStatus = _deleteFileOnModem( false );
 
-    TEST_ASSERT_EQUAL( CELLULAR_INTERNAL_FAILURE, cellularStatus );
+    TEST_ASSERT_EQUAL( CELLULAR_MODEM_ERROR_RESPONSE, cellularStatus );
 }
 
 /**
- * @brief Test that a plain ERROR final result is translated, not mapped to file not found.
+ * @brief Test that a plain ERROR final result is a modem error response, not file not found.
  */
 void test_Cellular_DeleteFileOnModem_Plain_Error( void )
 {
@@ -836,7 +847,7 @@ void test_Cellular_DeleteFileOnModem_Plain_Error( void )
 
     _setModemErrorResponse( "ERROR" );
 
-    cellularStatus = _deleteFileOnModem( true );
+    cellularStatus = _deleteFileOnModem( false );
 
-    TEST_ASSERT_EQUAL( CELLULAR_INTERNAL_FAILURE, cellularStatus );
+    TEST_ASSERT_EQUAL( CELLULAR_MODEM_ERROR_RESPONSE, cellularStatus );
 }

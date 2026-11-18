@@ -192,6 +192,8 @@ static CellularPktStatus_t _Cellular_RecvFuncGetSimCardStatus( CellularContext_t
 static CellularSimCardLockState_t _getSimLockState( char * pToken );
 static bool _tryParseCmeErrorCode( const CellularAtErrorResponse_t * pErrorResponse,
                                    uint32_t * pCmeErrorCode );
+static CellularError_t _translateFileCommandFailure( CellularPktStatus_t pktStatus,
+                                                     const CellularAtErrorResponse_t * pErrorResponse );
 static CellularPktStatus_t _Cellular_RecvFuncGetSimLockStatus( CellularContext_t * pContext,
                                                                const CellularATCommandResponse_t * pAtResp,
                                                                void * pData,
@@ -5063,15 +5065,14 @@ CellularError_t Cellular_DeleteFileOnModem( CellularHandle_t cellularHandle,
         pktStatus = _Cellular_AtcmdRequestWithCallback(pContext, atReqDeleteFile);
 
         if (pktStatus != CELLULAR_PKT_STATUS_OK) {
-            uint32_t cmeErrorCode = 0;
+            cellularStatus = _translateFileCommandFailure(pktStatus, &errorResponse);
 
-            if ((_tryParseCmeErrorCode(&errorResponse, &cmeErrorCode) == true) &&
-                (cmeErrorCode == BG770_CME_ERROR_FILE_NOT_FOUND)) {
+            if (cellularStatus == CELLULAR_FILE_NOT_FOUND) {
                 LogInfo(("Cellular_DeleteFileOnModem: file not found, cmdBuf:%s", cmdBuf));
-                cellularStatus = CELLULAR_FILE_NOT_FOUND;
+            } else if (cellularStatus == CELLULAR_MODEM_ERROR_RESPONSE) {
+                LogError(("Cellular_DeleteFileOnModem: modem error response, cmdBuf:%s, line:%s", cmdBuf, errorResponse.line));
             } else {
                 LogError(("Cellular_DeleteFileOnModem: couldn't delete the file, cmdBuf:%s, PktRet: %d", cmdBuf, pktStatus));
-                cellularStatus = _Cellular_TranslatePktStatus(pktStatus);
             }
         }
     }
@@ -5287,6 +5288,32 @@ static bool _tryParseCmeErrorCode( const CellularAtErrorResponse_t * pErrorRespo
     return parseStatus;
 }
 
+/* Classifies a failed file command request: file not found for +CME ERROR: 405, a modem error response for any other
+ * error final result the modem answered with, otherwise the library's translation of the packet status (e.g. timeout,
+ * command not sent, unusable response), in which case nothing is known about the file. */
+static CellularError_t _translateFileCommandFailure( CellularPktStatus_t pktStatus,
+                                                     const CellularAtErrorResponse_t * pErrorResponse )
+{
+    CellularError_t cellularStatus = CELLULAR_INTERNAL_FAILURE;
+    uint32_t cmeErrorCode = 0;
+
+    if( ( _tryParseCmeErrorCode( pErrorResponse, &cmeErrorCode ) == true ) &&
+        ( cmeErrorCode == BG770_CME_ERROR_FILE_NOT_FOUND ) )
+    {
+        cellularStatus = CELLULAR_FILE_NOT_FOUND;
+    }
+    else if( ( pErrorResponse != NULL ) && ( pErrorResponse->received == true ) )
+    {
+        cellularStatus = CELLULAR_MODEM_ERROR_RESPONSE;
+    }
+    else
+    {
+        cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
+    }
+
+    return cellularStatus;
+}
+
 CellularError_t Cellular_GetModemFileCRC32( CellularHandle_t cellularHandle,
                                             const char * pcFilename,
                                             uint32_t * crc32 )
@@ -5332,18 +5359,19 @@ CellularError_t Cellular_GetModemFileCRC32( CellularHandle_t cellularHandle,
 
         if( pktStatus != CELLULAR_PKT_STATUS_OK )
         {
-            uint32_t cmeErrorCode = 0;
+            cellularStatus = _translateFileCommandFailure( pktStatus, &errorResponse );
 
-            if( ( _tryParseCmeErrorCode( &errorResponse, &cmeErrorCode ) == true ) &&
-                ( cmeErrorCode == BG770_CME_ERROR_FILE_NOT_FOUND ) )
+            if( cellularStatus == CELLULAR_FILE_NOT_FOUND )
             {
                 LogWarn( ( "Cellular_GetModemFileCRC32: file not found, cmdBuf:%s", cmdBuf ) );
-                cellularStatus = CELLULAR_FILE_NOT_FOUND;
+            }
+            else if( cellularStatus == CELLULAR_MODEM_ERROR_RESPONSE )
+            {
+                LogError( ( "Cellular_GetModemFileCRC32: modem error response, cmdBuf:%s, line:%s", cmdBuf, errorResponse.line ) );
             }
             else
             {
                 LogError( ( "Cellular_GetModemFileCRC32: couldn't get the file CRC32, cmdBuf:%s, PktRet: %d", cmdBuf, pktStatus ) );
-                cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
             }
         }
     }
