@@ -25,6 +25,7 @@
 #include "cellular_types.h"
 #include "cellular_api.h"
 #include "cellular_bg770.h"
+#include "cellular_common_portable.h"
 
 #include "mock_cellular_common.h"
 #include "mock_cellular_common_api.h"
@@ -52,6 +53,34 @@ static const char * pExpectedAtCmd = NULL;
 static const char * pResponseLine = NULL;
 static char responseLineBuffer[ 64 ];
 
+/* Cellular_ModuleEnableUE support: the module context handed out by the mocked _Cellular_GetModuleContext, the
+ * result of the APP_RDY wait, and every vTaskDelay the code under test asked for. Both are unexpected in the file
+ * command tests, so they fail there unless a test allows them. */
+static cellularModuleContext_t moduleContext;
+static bool waitBitsAllowed = false;
+static uint16_t waitBitsResult = 0;
+static bool delaysAllowed = false;
+#define MAX_RECORDED_DELAYS    ( 16U )
+static TickType_t recordedDelayTicks[ MAX_RECORDED_DELAYS ];
+static size_t recordedDelayCount = 0;
+
+/* A scripted AT command exchange: what Cellular_ModuleEnableUE is expected to send next, and the packet status the
+ * mocked request answers with. The script is consumed in order; a command that doesn't match or goes past the end
+ * fails the test. */
+typedef struct ScriptedCommand
+{
+    const char * pAtCmd;
+    CellularATCommandType_t atCmdType;
+    const char * pAtRspPrefix;          /* NULL for none */
+    bool withTimeout;                   /* sent through _Cellular_TimeoutAtcmdRequestWithCallback (true) or _Cellular_AtcmdRequestWithCallback */
+    uint32_t timeoutMS;                 /* only checked when withTimeout */
+    CellularPktStatus_t pktStatus;
+} ScriptedCommand_t;
+
+static const ScriptedCommand_t * pScript = NULL;
+static size_t scriptLength = 0;
+static size_t scriptIndex = 0;
+
 /* ============================   UNITY FIXTURES ============================ */
 
 /* Called before each test method. */
@@ -64,6 +93,15 @@ void setUp()
     memset( errorResponseLine, 0, sizeof( errorResponseLine ) );
     pExpectedAtCmd = NULL;
     pResponseLine = NULL;
+    memset( &moduleContext, 0, sizeof( moduleContext ) );
+    waitBitsAllowed = false;
+    waitBitsResult = 0;
+    delaysAllowed = false;
+    memset( recordedDelayTicks, 0, sizeof( recordedDelayTicks ) );
+    recordedDelayCount = 0;
+    pScript = NULL;
+    scriptLength = 0;
+    scriptIndex = 0;
 }
 
 /* Called after each test method. */
@@ -171,13 +209,19 @@ uint16_t MockPlatformEventGroup_WaitBits( PlatformEventGroupHandle_t groupEvent,
                                           BaseType_t xWaitForAllBits,
                                           TickType_t xTicksToWait )
 {
-    ( void ) groupEvent;
-    ( void ) uxBitsToWaitFor;
-    ( void ) xClearOnExit;
-    ( void ) xWaitForAllBits;
-    ( void ) xTicksToWait;
-    TEST_FAIL_MESSAGE( "Unexpected call to PlatformEventGroup_WaitBits" );
-    return 0;
+    if( waitBitsAllowed == false )
+    {
+        TEST_FAIL_MESSAGE( "Unexpected call to PlatformEventGroup_WaitBits" );
+    }
+
+    /* Cellular_ModuleEnableUE waits up to 10 s for the APP_RDY URC on the module's init event, clearing the bit. */
+    TEST_ASSERT_EQUAL_PTR( moduleContext.pInitEvent, groupEvent );
+    TEST_ASSERT_EQUAL( INIT_EVT_MASK_APP_RDY_RECEIVED, uxBitsToWaitFor );
+    TEST_ASSERT_EQUAL( pdTRUE, xClearOnExit );
+    TEST_ASSERT_EQUAL( pdFALSE, xWaitForAllBits );
+    TEST_ASSERT_EQUAL( pdMS_TO_TICKS( 10000U ), xTicksToWait );
+
+    return waitBitsResult;
 }
 
 uint16_t MockPlatformEventGroup_SetBits( PlatformEventGroupHandle_t groupEvent,
@@ -200,8 +244,14 @@ uint16_t MockPlatformEventGroup_ClearBits( PlatformEventGroupHandle_t groupEvent
 
 void vTaskDelay( TickType_t xTicksToDelay )
 {
-    ( void ) xTicksToDelay;
-    TEST_FAIL_MESSAGE( "Unexpected call to vTaskDelay" );
+    if( delaysAllowed == false )
+    {
+        TEST_FAIL_MESSAGE( "Unexpected call to vTaskDelay" );
+    }
+
+    TEST_ASSERT_TRUE_MESSAGE( recordedDelayCount < MAX_RECORDED_DELAYS, "More vTaskDelay calls than recorded" );
+    recordedDelayTicks[ recordedDelayCount ] = xTicksToDelay;
+    recordedDelayCount++;
 }
 
 int debugASSERT( int condition )
@@ -871,4 +921,303 @@ void test_Cellular_DeleteFileOnModem_Plain_Error( void )
     cellularStatus = _deleteFileOnModem( false );
 
     TEST_ASSERT_EQUAL( CELLULAR_MODEM_ERROR_RESPONSE, cellularStatus );
+}
+
+/* ========================================================================== */
+/* Cellular_ModuleEnableUE: the AT+CMEE=1 step (numeric +CME ERROR codes, which the file commands depend on).      */
+/* ========================================================================== */
+
+static CellularError_t _Cellular_GetModuleContext_ReturnModuleContext( const CellularContext_t * pContext,
+                                                                       void ** ppModuleContext,
+                                                                       int cmock_num_calls )
+{
+    ( void ) cmock_num_calls;
+
+    TEST_ASSERT_EQUAL_PTR( &context, pContext );
+    TEST_ASSERT_NOT_NULL( ppModuleContext );
+    *ppModuleContext = &moduleContext;
+
+    return CELLULAR_SUCCESS;
+}
+
+/* The library's translation, enough of it for these tests. */
+static CellularError_t _Cellular_TranslatePktStatus_Library( CellularPktStatus_t status,
+                                                             int cmock_num_calls )
+{
+    CellularError_t cellularStatus = CELLULAR_INTERNAL_FAILURE;
+
+    ( void ) cmock_num_calls;
+
+    if( status == CELLULAR_PKT_STATUS_OK )
+    {
+        cellularStatus = CELLULAR_SUCCESS;
+    }
+    else if( status == CELLULAR_PKT_STATUS_TIMED_OUT )
+    {
+        cellularStatus = CELLULAR_TIMEOUT;
+    }
+
+    return cellularStatus;
+}
+
+/* Checks the request against the next scripted command and answers with its packet status. */
+static CellularPktStatus_t _nextScriptedCommand( const CellularContext_t * pContext,
+                                                 const CellularAtReq_t * pAtReq,
+                                                 bool withTimeout,
+                                                 uint32_t timeoutMS )
+{
+    const ScriptedCommand_t * pCommand = NULL;
+
+    TEST_ASSERT_EQUAL_PTR( &context, pContext );
+    TEST_ASSERT_NOT_NULL( pAtReq->pAtCmd );
+
+    if( scriptIndex >= scriptLength )
+    {
+        char message[ 96 ];
+
+        ( void ) snprintf( message, sizeof( message ), "Command sent past the end of the script: %s", pAtReq->pAtCmd );
+        TEST_FAIL_MESSAGE( message );
+    }
+
+    pCommand = &pScript[ scriptIndex ];
+    scriptIndex++;
+
+    TEST_ASSERT_EQUAL_STRING( pCommand->pAtCmd, pAtReq->pAtCmd );
+    TEST_ASSERT_EQUAL( pCommand->atCmdType, pAtReq->atCmdType );
+
+    if( pCommand->pAtRspPrefix == NULL )
+    {
+        TEST_ASSERT_NULL( pAtReq->pAtRspPrefix );
+    }
+    else
+    {
+        TEST_ASSERT_EQUAL_STRING( pCommand->pAtRspPrefix, pAtReq->pAtRspPrefix );
+    }
+
+    /* The enable sequence doesn't capture error responses. */
+    TEST_ASSERT_NULL( pAtReq->pErrorResponse );
+
+    TEST_ASSERT_EQUAL( pCommand->withTimeout, withTimeout );
+
+    if( withTimeout == true )
+    {
+        TEST_ASSERT_EQUAL( pCommand->timeoutMS, timeoutMS );
+    }
+
+    return pCommand->pktStatus;
+}
+
+static CellularPktStatus_t _Cellular_TimeoutAtcmdRequestWithCallback_Scripted( CellularContext_t * pContext,
+                                                                              CellularAtReq_t atReq,
+                                                                              uint32_t timeoutMS,
+                                                                              int cmock_num_calls )
+{
+    ( void ) cmock_num_calls;
+
+    return _nextScriptedCommand( pContext, &atReq, true, timeoutMS );
+}
+
+static CellularPktStatus_t _Cellular_AtcmdRequestWithCallback_Scripted( CellularContext_t * pContext,
+                                                                       CellularAtReq_t atReq,
+                                                                       int cmock_num_calls )
+{
+    ( void ) cmock_num_calls;
+
+    return _nextScriptedCommand( pContext, &atReq, false, 0U );
+}
+
+/* Runs Cellular_ModuleEnableUE against the script with the APP_RDY URC received (or not), and checks that the whole
+ * script was consumed. */
+static CellularError_t _enableUEWithScript( const ScriptedCommand_t * pCommands,
+                                            size_t commandCount,
+                                            bool appReadyReceived )
+{
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+
+    pScript = pCommands;
+    scriptLength = commandCount;
+    scriptIndex = 0;
+    moduleContext.pInitEvent = ( PlatformEventGroupHandle_t ) 0x1234;
+    waitBitsAllowed = true;
+    waitBitsResult = appReadyReceived ? ( uint16_t ) INIT_EVT_MASK_APP_RDY_RECEIVED : 0U;
+    delaysAllowed = true;
+
+    _Cellular_GetModuleContext_Stub( _Cellular_GetModuleContext_ReturnModuleContext );
+    _Cellular_TranslatePktStatus_Stub( _Cellular_TranslatePktStatus_Library );
+    _Cellular_TimeoutAtcmdRequestWithCallback_Stub( _Cellular_TimeoutAtcmdRequestWithCallback_Scripted );
+    _Cellular_AtcmdRequestWithCallback_Stub( _Cellular_AtcmdRequestWithCallback_Scripted );
+
+    cellularStatus = Cellular_ModuleEnableUE( &context );
+
+    TEST_ASSERT_EQUAL_MESSAGE( scriptLength, scriptIndex, "Not every scripted command was sent" );
+
+    return cellularStatus;
+}
+
+/* Checks the recorded vTaskDelay calls, in order. */
+static void _assertDelays( const TickType_t * pExpectedTicks,
+                           size_t expectedCount )
+{
+    size_t i = 0;
+
+    TEST_ASSERT_EQUAL( expectedCount, recordedDelayCount );
+
+    for( i = 0; i < expectedCount; i++ )
+    {
+        TEST_ASSERT_EQUAL_MESSAGE( pExpectedTicks[ i ], recordedDelayTicks[ i ], "Delay at this index differs" );
+    }
+}
+
+/* The enable sequence up to AT+CMEE=1: the modem probe (short timeout, short backoff base), echo off, DTR off. */
+#define SCRIPT_PROBE_AT         { "AT", CELLULAR_AT_MULTI_WO_PREFIX, NULL, true, 1000U, CELLULAR_PKT_STATUS_OK }
+#define SCRIPT_ECHO_OFF         { "ATE0", CELLULAR_AT_MULTI_WO_PREFIX, NULL, true, ENABLE_MODULE_UE_RETRY_TIMEOUT_MS, CELLULAR_PKT_STATUS_OK }
+#define SCRIPT_DTR_OFF          { "AT&D0", CELLULAR_AT_NO_RESULT, NULL, true, ENABLE_MODULE_UE_RETRY_TIMEOUT_MS, CELLULAR_PKT_STATUS_OK }
+#define SCRIPT_CMEE( status )   { "AT+CMEE=1", CELLULAR_AT_NO_RESULT, NULL, true, ENABLE_MODULE_UE_RETRY_TIMEOUT_MS, ( status ) }
+
+/* The 5 s settle after APP_RDY, then the three increasing backoffs (1 s, 4 s, 9 s) of a four-try command. */
+#define DELAY_POST_APP_READY    pdMS_TO_TICKS( 5000U )
+#define DELAY_BACKOFF_1         pdMS_TO_TICKS( 1000U )
+#define DELAY_BACKOFF_2         pdMS_TO_TICKS( 4000U )
+#define DELAY_BACKOFF_3         pdMS_TO_TICKS( 9000U )
+#define DELAY_SHORT             pdMS_TO_TICKS( 10U )
+
+/**
+ * @brief Test that AT+CMEE=1 is sent right after AT&D0 with the enable sequence's request shape, that a modem that
+ * doesn't answer it is given four tries with increasing backoff, and that the sequence then stops with the timeout.
+ */
+void test_Cellular_ModuleEnableUE_Cmee_Sent_After_Dtr_Off_And_Four_Timeouts_Stop_The_Sequence( void )
+{
+    static const ScriptedCommand_t script[] =
+    {
+        SCRIPT_PROBE_AT,
+        SCRIPT_ECHO_OFF,
+        SCRIPT_DTR_OFF,
+        SCRIPT_CMEE( CELLULAR_PKT_STATUS_TIMED_OUT ),
+        SCRIPT_CMEE( CELLULAR_PKT_STATUS_TIMED_OUT ),
+        SCRIPT_CMEE( CELLULAR_PKT_STATUS_TIMED_OUT ),
+        SCRIPT_CMEE( CELLULAR_PKT_STATUS_TIMED_OUT ),
+    };
+    static const TickType_t expectedDelays[] =
+    {
+        DELAY_POST_APP_READY, DELAY_BACKOFF_1, DELAY_BACKOFF_2, DELAY_BACKOFF_3
+    };
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+
+    cellularStatus = _enableUEWithScript( script, sizeof( script ) / sizeof( script[ 0 ] ), true );
+
+    TEST_ASSERT_EQUAL( CELLULAR_TIMEOUT, cellularStatus );
+    _assertDelays( expectedDelays, sizeof( expectedDelays ) / sizeof( expectedDelays[ 0 ] ) );
+}
+
+/**
+ * @brief Test that a modem answering AT+CMEE=1 with an error on all four tries stops the sequence with the
+ * translated failure.
+ */
+void test_Cellular_ModuleEnableUE_Cmee_Four_Error_Responses_Stop_The_Sequence( void )
+{
+    static const ScriptedCommand_t script[] =
+    {
+        SCRIPT_PROBE_AT,
+        SCRIPT_ECHO_OFF,
+        SCRIPT_DTR_OFF,
+        SCRIPT_CMEE( CELLULAR_PKT_STATUS_FAILURE ),
+        SCRIPT_CMEE( CELLULAR_PKT_STATUS_FAILURE ),
+        SCRIPT_CMEE( CELLULAR_PKT_STATUS_FAILURE ),
+        SCRIPT_CMEE( CELLULAR_PKT_STATUS_FAILURE ),
+    };
+    static const TickType_t expectedDelays[] =
+    {
+        DELAY_POST_APP_READY, DELAY_BACKOFF_1, DELAY_BACKOFF_2, DELAY_BACKOFF_3
+    };
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+
+    cellularStatus = _enableUEWithScript( script, sizeof( script ) / sizeof( script[ 0 ] ), true );
+
+    TEST_ASSERT_EQUAL( CELLULAR_INTERNAL_FAILURE, cellularStatus );
+    _assertDelays( expectedDelays, sizeof( expectedDelays ) / sizeof( expectedDelays[ 0 ] ) );
+}
+
+/**
+ * @brief Test that AT+CMEE=1 answered on its third try is accepted: the sequence goes on to the flow control step
+ * (whose failure is used here to end the sequence) instead of giving up on it.
+ */
+void test_Cellular_ModuleEnableUE_Cmee_Transient_Failure_Is_Retried_Then_The_Sequence_Continues( void )
+{
+    static const ScriptedCommand_t script[] =
+    {
+        SCRIPT_PROBE_AT,
+        SCRIPT_ECHO_OFF,
+        SCRIPT_DTR_OFF,
+        SCRIPT_CMEE( CELLULAR_PKT_STATUS_FAILURE ),
+        SCRIPT_CMEE( CELLULAR_PKT_STATUS_TIMED_OUT ),
+        SCRIPT_CMEE( CELLULAR_PKT_STATUS_OK ),
+        /* Flow control query, four tries, then the one-shot set, all unanswered: the sequence ends there. */
+        { "AT+IFC?", CELLULAR_AT_WITH_PREFIX, "+IFC", true, ENABLE_MODULE_UE_RETRY_TIMEOUT_MS, CELLULAR_PKT_STATUS_TIMED_OUT },
+        { "AT+IFC?", CELLULAR_AT_WITH_PREFIX, "+IFC", true, ENABLE_MODULE_UE_RETRY_TIMEOUT_MS, CELLULAR_PKT_STATUS_TIMED_OUT },
+        { "AT+IFC?", CELLULAR_AT_WITH_PREFIX, "+IFC", true, ENABLE_MODULE_UE_RETRY_TIMEOUT_MS, CELLULAR_PKT_STATUS_TIMED_OUT },
+        { "AT+IFC?", CELLULAR_AT_WITH_PREFIX, "+IFC", true, ENABLE_MODULE_UE_RETRY_TIMEOUT_MS, CELLULAR_PKT_STATUS_TIMED_OUT },
+        { "AT+IFC=2,2", CELLULAR_AT_NO_RESULT, NULL, false, 0U, CELLULAR_PKT_STATUS_TIMED_OUT },
+    };
+    static const TickType_t expectedDelays[] =
+    {
+        DELAY_POST_APP_READY, DELAY_BACKOFF_1, DELAY_BACKOFF_2,
+        DELAY_SHORT, DELAY_BACKOFF_1, DELAY_BACKOFF_2, DELAY_BACKOFF_3
+    };
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+
+    cellularStatus = _enableUEWithScript( script, sizeof( script ) / sizeof( script[ 0 ] ), true );
+
+    TEST_ASSERT_EQUAL( CELLULAR_TIMEOUT, cellularStatus );
+    _assertDelays( expectedDelays, sizeof( expectedDelays ) / sizeof( expectedDelays[ 0 ] ) );
+}
+
+/**
+ * @brief Test that AT+CMEE=1 is not sent when AT&D0 before it failed on all four tries.
+ */
+void test_Cellular_ModuleEnableUE_Cmee_Not_Sent_When_Dtr_Off_Fails( void )
+{
+    static const ScriptedCommand_t script[] =
+    {
+        SCRIPT_PROBE_AT,
+        SCRIPT_ECHO_OFF,
+        { "AT&D0", CELLULAR_AT_NO_RESULT, NULL, true, ENABLE_MODULE_UE_RETRY_TIMEOUT_MS, CELLULAR_PKT_STATUS_FAILURE },
+        { "AT&D0", CELLULAR_AT_NO_RESULT, NULL, true, ENABLE_MODULE_UE_RETRY_TIMEOUT_MS, CELLULAR_PKT_STATUS_FAILURE },
+        { "AT&D0", CELLULAR_AT_NO_RESULT, NULL, true, ENABLE_MODULE_UE_RETRY_TIMEOUT_MS, CELLULAR_PKT_STATUS_FAILURE },
+        { "AT&D0", CELLULAR_AT_NO_RESULT, NULL, true, ENABLE_MODULE_UE_RETRY_TIMEOUT_MS, CELLULAR_PKT_STATUS_FAILURE },
+    };
+    static const TickType_t expectedDelays[] =
+    {
+        DELAY_POST_APP_READY, DELAY_BACKOFF_1, DELAY_BACKOFF_2, DELAY_BACKOFF_3
+    };
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+
+    cellularStatus = _enableUEWithScript( script, sizeof( script ) / sizeof( script[ 0 ] ), true );
+
+    TEST_ASSERT_EQUAL( CELLULAR_INTERNAL_FAILURE, cellularStatus );
+    _assertDelays( expectedDelays, sizeof( expectedDelays ) / sizeof( expectedDelays[ 0 ] ) );
+}
+
+/**
+ * @brief Test that the sequence still probes the modem when the APP_RDY URC never came, with the probe's own
+ * short timeout and backoff (100 ms base), and stops when the probe gets no answer.
+ */
+void test_Cellular_ModuleEnableUE_Probes_Modem_Without_App_Ready( void )
+{
+    static const ScriptedCommand_t script[] =
+    {
+        { "AT", CELLULAR_AT_MULTI_WO_PREFIX, NULL, true, 1000U, CELLULAR_PKT_STATUS_TIMED_OUT },
+        { "AT", CELLULAR_AT_MULTI_WO_PREFIX, NULL, true, 1000U, CELLULAR_PKT_STATUS_TIMED_OUT },
+        { "AT", CELLULAR_AT_MULTI_WO_PREFIX, NULL, true, 1000U, CELLULAR_PKT_STATUS_TIMED_OUT },
+        { "AT", CELLULAR_AT_MULTI_WO_PREFIX, NULL, true, 1000U, CELLULAR_PKT_STATUS_TIMED_OUT },
+    };
+    static const TickType_t expectedDelays[] =
+    {
+        DELAY_POST_APP_READY, pdMS_TO_TICKS( 100U ), pdMS_TO_TICKS( 400U ), pdMS_TO_TICKS( 900U )
+    };
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+
+    cellularStatus = _enableUEWithScript( script, sizeof( script ) / sizeof( script[ 0 ] ), false );
+
+    TEST_ASSERT_EQUAL( CELLULAR_TIMEOUT, cellularStatus );
+    _assertDelays( expectedDelays, sizeof( expectedDelays ) / sizeof( expectedDelays[ 0 ] ) );
 }
