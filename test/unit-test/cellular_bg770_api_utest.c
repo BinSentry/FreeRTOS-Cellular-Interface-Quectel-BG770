@@ -1125,11 +1125,24 @@ static void _assertDelays( const TickType_t * pExpectedTicks,
 #define DELAY_BACKOFF_3         pdMS_TO_TICKS( 9000U )
 #define DELAY_SHORT             pdMS_TO_TICKS( 10U )
 
+/* The flow control step that follows AT+CMEE=1, all unanswered so the sequence ends there with CELLULAR_TIMEOUT:
+ * the query's four tries, then the one-shot set. */
+#define SCRIPT_FLOW_CONTROL_STEP_UNANSWERED \
+        { "AT+IFC?", CELLULAR_AT_WITH_PREFIX, "+IFC", true, ENABLE_MODULE_UE_RETRY_TIMEOUT_MS, CELLULAR_PKT_STATUS_TIMED_OUT }, \
+        { "AT+IFC?", CELLULAR_AT_WITH_PREFIX, "+IFC", true, ENABLE_MODULE_UE_RETRY_TIMEOUT_MS, CELLULAR_PKT_STATUS_TIMED_OUT }, \
+        { "AT+IFC?", CELLULAR_AT_WITH_PREFIX, "+IFC", true, ENABLE_MODULE_UE_RETRY_TIMEOUT_MS, CELLULAR_PKT_STATUS_TIMED_OUT }, \
+        { "AT+IFC?", CELLULAR_AT_WITH_PREFIX, "+IFC", true, ENABLE_MODULE_UE_RETRY_TIMEOUT_MS, CELLULAR_PKT_STATUS_TIMED_OUT }, \
+        { "AT+IFC=2,2", CELLULAR_AT_NO_RESULT, NULL, false, 0U, CELLULAR_PKT_STATUS_TIMED_OUT }
+
+/* The delays of that step: the 10 ms settle, then the query's three backoffs. */
+#define DELAYS_FLOW_CONTROL_STEP_UNANSWERED    DELAY_SHORT, DELAY_BACKOFF_1, DELAY_BACKOFF_2, DELAY_BACKOFF_3
+
 /**
  * @brief Test that AT+CMEE=1 is sent right after AT&D0 with the enable sequence's request shape, that a modem that
- * doesn't answer it is given four tries with increasing backoff, and that the sequence then stops with the timeout.
+ * doesn't answer it is given four tries with increasing backoff, and that the sequence then continues without it
+ * (to the flow control step, whose failure is used here to end the sequence).
  */
-void test_Cellular_ModuleEnableUE_Cmee_Sent_After_Dtr_Off_And_Four_Timeouts_Stop_The_Sequence( void )
+void test_Cellular_ModuleEnableUE_Cmee_Sent_After_Dtr_Off_And_Four_Timeouts_Dont_Stop_The_Sequence( void )
 {
     static const ScriptedCommand_t script[] =
     {
@@ -1140,10 +1153,12 @@ void test_Cellular_ModuleEnableUE_Cmee_Sent_After_Dtr_Off_And_Four_Timeouts_Stop
         SCRIPT_CMEE( CELLULAR_PKT_STATUS_TIMED_OUT ),
         SCRIPT_CMEE( CELLULAR_PKT_STATUS_TIMED_OUT ),
         SCRIPT_CMEE( CELLULAR_PKT_STATUS_TIMED_OUT ),
+        SCRIPT_FLOW_CONTROL_STEP_UNANSWERED,
     };
     static const TickType_t expectedDelays[] =
     {
-        DELAY_POST_APP_READY, DELAY_BACKOFF_1, DELAY_BACKOFF_2, DELAY_BACKOFF_3
+        DELAY_POST_APP_READY, DELAY_BACKOFF_1, DELAY_BACKOFF_2, DELAY_BACKOFF_3,
+        DELAYS_FLOW_CONTROL_STEP_UNANSWERED
     };
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
 
@@ -1154,10 +1169,9 @@ void test_Cellular_ModuleEnableUE_Cmee_Sent_After_Dtr_Off_And_Four_Timeouts_Stop
 }
 
 /**
- * @brief Test that a modem answering AT+CMEE=1 with an error on all four tries stops the sequence with the
- * translated failure.
+ * @brief Test that a modem answering AT+CMEE=1 with an error on all four tries doesn't stop the sequence either.
  */
-void test_Cellular_ModuleEnableUE_Cmee_Four_Error_Responses_Stop_The_Sequence( void )
+void test_Cellular_ModuleEnableUE_Cmee_Four_Error_Responses_Dont_Stop_The_Sequence( void )
 {
     static const ScriptedCommand_t script[] =
     {
@@ -1168,16 +1182,18 @@ void test_Cellular_ModuleEnableUE_Cmee_Four_Error_Responses_Stop_The_Sequence( v
         SCRIPT_CMEE( CELLULAR_PKT_STATUS_FAILURE ),
         SCRIPT_CMEE( CELLULAR_PKT_STATUS_FAILURE ),
         SCRIPT_CMEE( CELLULAR_PKT_STATUS_FAILURE ),
+        SCRIPT_FLOW_CONTROL_STEP_UNANSWERED,
     };
     static const TickType_t expectedDelays[] =
     {
-        DELAY_POST_APP_READY, DELAY_BACKOFF_1, DELAY_BACKOFF_2, DELAY_BACKOFF_3
+        DELAY_POST_APP_READY, DELAY_BACKOFF_1, DELAY_BACKOFF_2, DELAY_BACKOFF_3,
+        DELAYS_FLOW_CONTROL_STEP_UNANSWERED
     };
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
 
     cellularStatus = _enableUEWithScript( script, sizeof( script ) / sizeof( script[ 0 ] ), true );
 
-    TEST_ASSERT_EQUAL( CELLULAR_INTERNAL_FAILURE, cellularStatus );
+    TEST_ASSERT_EQUAL( CELLULAR_TIMEOUT, cellularStatus );
     _assertDelays( expectedDelays, sizeof( expectedDelays ) / sizeof( expectedDelays[ 0 ] ) );
 }
 
@@ -1195,17 +1211,12 @@ void test_Cellular_ModuleEnableUE_Cmee_Transient_Failure_Is_Retried_Then_The_Seq
         SCRIPT_CMEE( CELLULAR_PKT_STATUS_FAILURE ),
         SCRIPT_CMEE( CELLULAR_PKT_STATUS_TIMED_OUT ),
         SCRIPT_CMEE( CELLULAR_PKT_STATUS_OK ),
-        /* Flow control query, four tries, then the one-shot set, all unanswered: the sequence ends there. */
-        { "AT+IFC?", CELLULAR_AT_WITH_PREFIX, "+IFC", true, ENABLE_MODULE_UE_RETRY_TIMEOUT_MS, CELLULAR_PKT_STATUS_TIMED_OUT },
-        { "AT+IFC?", CELLULAR_AT_WITH_PREFIX, "+IFC", true, ENABLE_MODULE_UE_RETRY_TIMEOUT_MS, CELLULAR_PKT_STATUS_TIMED_OUT },
-        { "AT+IFC?", CELLULAR_AT_WITH_PREFIX, "+IFC", true, ENABLE_MODULE_UE_RETRY_TIMEOUT_MS, CELLULAR_PKT_STATUS_TIMED_OUT },
-        { "AT+IFC?", CELLULAR_AT_WITH_PREFIX, "+IFC", true, ENABLE_MODULE_UE_RETRY_TIMEOUT_MS, CELLULAR_PKT_STATUS_TIMED_OUT },
-        { "AT+IFC=2,2", CELLULAR_AT_NO_RESULT, NULL, false, 0U, CELLULAR_PKT_STATUS_TIMED_OUT },
+        SCRIPT_FLOW_CONTROL_STEP_UNANSWERED,
     };
     static const TickType_t expectedDelays[] =
     {
         DELAY_POST_APP_READY, DELAY_BACKOFF_1, DELAY_BACKOFF_2,
-        DELAY_SHORT, DELAY_BACKOFF_1, DELAY_BACKOFF_2, DELAY_BACKOFF_3
+        DELAYS_FLOW_CONTROL_STEP_UNANSWERED
     };
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
 

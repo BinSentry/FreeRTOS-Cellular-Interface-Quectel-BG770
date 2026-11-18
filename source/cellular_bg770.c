@@ -690,17 +690,19 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
         if( cellularStatus == CELLULAR_SUCCESS )
         {
             /* Numeric +CME ERROR codes, the file commands depend on them (see _tryParseCmeErrorCode) - this is the
-             * factory default and is not saved to user profile, don't need to perform read before write. */
+             * factory default and is not saved to user profile, don't need to perform read before write. Not fatal:
+             * the modem is usable without it (the file commands then only lose the distinction of a missing file
+             * from other errors), and nothing here ever sets another mode. */
             atReqGetNoResult.pAtCmd = "AT+CMEE=1";
-            cellularStatus = sendAtCommandWithRetryTimeout( pContext, &atReqGetNoResult );
-            if( cellularStatus == CELLULAR_SUCCESS )
+            const CellularError_t cmeeResult = sendAtCommandWithRetryTimeout( pContext, &atReqGetNoResult );
+            if( cmeeResult == CELLULAR_SUCCESS )
             {
                 LogInfo( ( "Cellular_ModuleEnableUE: '%s' command success.", atReqGetNoResult.pAtCmd ) );
             }
             else
             {
-                LogError( ( "Cellular_ModuleEnableUE: '%s' command failed (err: %s [%d]).",
-                            atReqGetNoResult.pAtCmd, getCellularErrorString(cellularStatus), cellularStatus ) );
+                LogError( ( "Cellular_ModuleEnableUE: '%s' command failed (err: %s [%d]), continuing without numeric +CME ERROR codes.",
+                            atReqGetNoResult.pAtCmd, getCellularErrorString(cmeeResult), cmeeResult ) );
             }
         }
 
