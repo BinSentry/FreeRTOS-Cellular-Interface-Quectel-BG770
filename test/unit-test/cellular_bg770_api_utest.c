@@ -517,6 +517,27 @@ void test_Cellular_GetModemFileCRC32_Empty_File( void )
 }
 
 /**
+ * @brief Test that a request ending OK without a +QFCRC line (a status that wasn't this request's answer) is a
+ * failure reporting CRC32 0, not a success with a CRC32 of 0.
+ */
+void test_Cellular_GetModemFileCRC32_Ok_Without_Response_Line( void )
+{
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+    uint32_t crc32 = TEST_CRC32_SENTINEL;
+
+    _Cellular_CheckLibraryStatus_ExpectAndReturn( &context, CELLULAR_SUCCESS );
+    _Cellular_AtcmdRequestWithCallback_Stub( _Cellular_AtcmdRequestWithCallback_ModemResponse );
+    pExpectedAtCmd = TEST_QFCRC_COMMAND;
+    /* No response line: the stub returns OK without delivering anything to the callback. */
+    _Cellular_TranslatePktStatus_ExpectAndReturn( CELLULAR_PKT_STATUS_BAD_RESPONSE, CELLULAR_INTERNAL_FAILURE );
+
+    cellularStatus = Cellular_GetModemFileCRC32( &context, TEST_FILE_NAME, &crc32 );
+
+    TEST_ASSERT_EQUAL( CELLULAR_INTERNAL_FAILURE, cellularStatus );
+    TEST_ASSERT_EQUAL_HEX32( 0, crc32 );
+}
+
+/**
  * @brief Test that a response with a missing CRC is a failure, not a file not found, and reports CRC32 0.
  */
 void test_Cellular_GetModemFileCRC32_Response_Missing_Token( void )

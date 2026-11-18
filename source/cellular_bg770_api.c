@@ -5087,6 +5087,7 @@ typedef struct BG770FileCRCs
     uint32_t crc32;
     uint16_t crc16;
     uint16_t crc16_ccitt;
+    bool parsed;    /* a +QFCRC line was parsed; false when the request ended OK without one */
 } BG770FileCRCs_t;
 
 static bool _parseFileCRCs( char * pQfcrcPayload,
@@ -5189,11 +5190,13 @@ static CellularPktStatus_t _Cellular_RecvFileCRCs( CellularContext_t * pContext,
     }
     else if( ( pAtResp == NULL ) || ( pAtResp->pItm == NULL ) || ( pAtResp->pItm->pLine == NULL ) )
     {
+        pFileCRCs->parsed = false;
         LogError( ( "GetSignalInfo: Input Line passed is NULL" ) );
         pktStatus = CELLULAR_PKT_STATUS_FAILURE;
     }
     else
     {
+        pFileCRCs->parsed = false;
         pInputLine = pAtResp->pItm->pLine;
         atCoreStatus = Cellular_ATRemovePrefix( &pInputLine );
 
@@ -5223,6 +5226,10 @@ static CellularPktStatus_t _Cellular_RecvFileCRCs( CellularContext_t * pContext,
             pFileCRCs->crc16 = 0;
             pFileCRCs->crc16_ccitt = 0;
             pktStatus = CELLULAR_PKT_STATUS_FAILURE;
+        }
+        else
+        {
+            pFileCRCs->parsed = true;
         }
     }
 
@@ -5354,6 +5361,15 @@ CellularError_t Cellular_GetModemFileCRC32( CellularHandle_t cellularHandle,
         /* coverity[misra_c_2012_rule_21_6_violation]. */
         ( void ) snprintf( cmdBuf, CELLULAR_AT_CMD_MAX_SIZE, "%s\"%s\"", "AT+QFCRC=", pcFilename );
         pktStatus = _Cellular_AtcmdRequestWithCallback( pContext, atReqGetFileCRCs );
+
+        if( ( pktStatus == CELLULAR_PKT_STATUS_OK ) && ( fileCRCs.parsed == false ) )
+        {
+            /* The modem's answer to AT+QFCRC always carries a +QFCRC line, so an OK without one wasn't this
+             * request's answer (see the late line comment in _Cellular_ProcessLine()). Don't report a CRC32 of 0
+             * as the file's CRC32. */
+            LogError( ( "Cellular_GetModemFileCRC32: OK without a +QFCRC line, cmdBuf:%s", cmdBuf ) );
+            pktStatus = CELLULAR_PKT_STATUS_BAD_RESPONSE;
+        }
 
         *crc32 = fileCRCs.crc32;
 
