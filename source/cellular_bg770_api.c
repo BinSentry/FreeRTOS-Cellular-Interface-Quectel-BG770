@@ -190,6 +190,10 @@ static CellularPktStatus_t _Cellular_RecvFuncGetSimCardStatus( CellularContext_t
                                                                void * pData,
                                                                uint16_t dataLen );
 static CellularSimCardLockState_t _getSimLockState( char * pToken );
+static bool _tryParseCmeErrorCode( const CellularAtErrorResponse_t * pErrorResponse,
+                                   uint32_t * pCmeErrorCode );
+static CellularError_t _translateFileCommandFailure( CellularPktStatus_t pktStatus,
+                                                     const CellularAtErrorResponse_t * pErrorResponse );
 static CellularPktStatus_t _Cellular_RecvFuncGetSimLockStatus( CellularContext_t * pContext,
                                                                const CellularATCommandResponse_t * pAtResp,
                                                                void * pData,
@@ -633,7 +637,7 @@ static CellularError_t controlSignalStrengthIndication( CellularContext_t * pCon
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
     char cmdBuf[ CELLULAR_AT_CMD_TYPICAL_MAX_SIZE ] = { '\0' };
     uint8_t enable_value = 0;
-    CellularAtReq_t atReqControlSignalStrengthIndication =
+    const CellularAtReq_t atReqControlSignalStrengthIndication =
     {
         cmdBuf,
         CELLULAR_AT_NO_RESULT,
@@ -641,6 +645,7 @@ static CellularError_t controlSignalStrengthIndication( CellularContext_t * pCon
         NULL,
         NULL,
         0,
+        NULL
     };
 
     if( enable == true )
@@ -2630,7 +2635,7 @@ CellularError_t Cellular_SetRatPriority( CellularHandle_t cellularHandle,
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
     char cmdBuf[ CELLULAR_AT_CMD_MAX_SIZE ] = { '\0' };
-    CellularAtReq_t atReqSetRatPriority =
+    const CellularAtReq_t atReqSetRatPriority =
     {
         cmdBuf,
         CELLULAR_AT_NO_RESULT,
@@ -2638,6 +2643,7 @@ CellularError_t Cellular_SetRatPriority( CellularHandle_t cellularHandle,
         NULL,
         NULL,
         0,
+        NULL
     };
 
     cellularStatus = _Cellular_CheckLibraryStatus( pContext );
@@ -2707,7 +2713,7 @@ CellularError_t Cellular_GetRatPriority( CellularHandle_t cellularHandle,
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
     uint32_t ratIndex = 0;
 
-    CellularAtReq_t atReqGetRatPriority =
+    const CellularAtReq_t atReqGetRatPriority =
     {
         "AT+QCFG=\"nwscanseq\"",
         CELLULAR_AT_WITH_PREFIX,
@@ -2715,6 +2721,7 @@ CellularError_t Cellular_GetRatPriority( CellularHandle_t cellularHandle,
         _Cellular_RecvFuncGetRatPriority,
         pRatPriorities,
         ( uint16_t ) ratPrioritiesLength,
+        NULL
     };
 
     cellularStatus = _Cellular_CheckLibraryStatus( pContext );
@@ -2766,7 +2773,7 @@ CellularError_t Cellular_SetDns( CellularHandle_t cellularHandle,
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
     char cmdBuf[ CELLULAR_AT_CMD_MAX_SIZE ] = { '\0' };
     int snprintfLength = -1;
-    CellularAtReq_t atReqSetDns =
+    const CellularAtReq_t atReqSetDns =
     {
         cmdBuf,
         CELLULAR_AT_NO_RESULT,
@@ -2774,6 +2781,7 @@ CellularError_t Cellular_SetDns( CellularHandle_t cellularHandle,
         NULL,
         NULL,
         0,
+        NULL
     };
 
     cellularStatus = _Cellular_CheckLibraryStatus( pContext );
@@ -2837,7 +2845,7 @@ CellularError_t Cellular_GetPsmSettings( CellularHandle_t cellularHandle,
     CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
-    CellularAtReq_t atReqGetPsm =
+    const CellularAtReq_t atReqGetPsm =
     {
         "AT+QPSMS?",
         CELLULAR_AT_WITH_PREFIX,
@@ -2845,6 +2853,7 @@ CellularError_t Cellular_GetPsmSettings( CellularHandle_t cellularHandle,
         _Cellular_RecvFuncGetPsmSettings,
         pPsmSettings,
         sizeof( CellularPsmSettings_t ),
+        NULL
     };
 
     cellularStatus = _Cellular_CheckLibraryStatus( pContext );
@@ -2884,7 +2893,7 @@ CellularError_t Cellular_GetRequestedPsmSettings( CellularHandle_t cellularHandl
     CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
-    CellularAtReq_t atReqGetPsm =
+    const CellularAtReq_t atReqGetPsm =
     {
         "AT+CPSMS?",
         CELLULAR_AT_WITH_PREFIX,
@@ -2892,6 +2901,7 @@ CellularError_t Cellular_GetRequestedPsmSettings( CellularHandle_t cellularHandl
         _Cellular_RecvFuncGetRequestedPsmSettings,
         pPsmSettings,
         sizeof( CellularPsmSettings_t ),
+        NULL
     };
 
     cellularStatus = _Cellular_CheckLibraryStatus( pContext );
@@ -2934,7 +2944,7 @@ CellularError_t Cellular_GetPsmConfigSettings( CellularHandle_t cellularHandle,
     CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
-    CellularAtReq_t atReqGetPsm =
+    const CellularAtReq_t atReqGetPsm =
     {
         "AT+QPSMCFG?",
         CELLULAR_AT_WITH_PREFIX,
@@ -2942,6 +2952,7 @@ CellularError_t Cellular_GetPsmConfigSettings( CellularHandle_t cellularHandle,
         _Cellular_RecvFuncGetPsmConfigSettings,
         pPsmConfigSettings,
         sizeof( CellularPsmConfigSettings_t ),
+        NULL
     };
 
     cellularStatus = _Cellular_CheckLibraryStatus( pContext );
@@ -3054,14 +3065,15 @@ CellularError_t Cellular_SetPsmSettings( CellularHandle_t cellularHandle,
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
     char cmdBuf[ CELLULAR_AT_CMD_MAX_SIZE ] = { '\0' };
     uint32_t cmdBufLen = 0;
-    CellularAtReq_t atReqSetPsm =
+    const CellularAtReq_t atReqSetPsm =
     {
         cmdBuf,
         CELLULAR_AT_NO_RESULT,
         NULL,
         NULL,
         NULL,
-        0
+        0,
+        NULL
     };
 
     cellularStatus = _Cellular_CheckLibraryStatus( pContext );
@@ -3142,14 +3154,15 @@ CellularError_t Cellular_SetPsmConfigSettings( CellularHandle_t cellularHandle,
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
     char cmdBuf[ CELLULAR_AT_CMD_MAX_SIZE ] = { '\0' };
-    CellularAtReq_t atReqSetPsmConfig =
+    const CellularAtReq_t atReqSetPsmConfig =
     {
         cmdBuf,
         CELLULAR_AT_NO_RESULT,
         NULL,
         NULL,
         NULL,
-        0
+        0,
+        NULL
     };
 
     cellularStatus = _Cellular_CheckLibraryStatus( pContext );
@@ -3204,7 +3217,7 @@ CellularError_t Cellular_DeactivatePdn( CellularHandle_t cellularHandle,
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
     char cmdBuf[ CELLULAR_AT_CMD_TYPICAL_MAX_SIZE ] = { '\0' };
-    CellularAtReq_t atReqDeactPdn =
+    const CellularAtReq_t atReqDeactPdn =
     {
         cmdBuf,
         CELLULAR_AT_NO_RESULT,
@@ -3212,6 +3225,7 @@ CellularError_t Cellular_DeactivatePdn( CellularHandle_t cellularHandle,
         NULL,
         NULL,
         0,
+        NULL
     };
 
     cellularStatus = _Cellular_IsValidPdn( contextId );
@@ -3254,7 +3268,7 @@ CellularError_t Cellular_ActivatePdn( CellularHandle_t cellularHandle,
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
     char cmdBuf[ CELLULAR_AT_CMD_TYPICAL_MAX_SIZE ] = { '\0' };
 
-    CellularAtReq_t atReqActPdn =
+    const CellularAtReq_t atReqActPdn =
     {
         cmdBuf,
         CELLULAR_AT_NO_RESULT,
@@ -3262,6 +3276,7 @@ CellularError_t Cellular_ActivatePdn( CellularHandle_t cellularHandle,
         NULL,
         NULL,
         0,
+        NULL
     };
 
     cellularStatus = _Cellular_IsValidPdn( contextId );
@@ -3538,7 +3553,7 @@ CellularError_t Cellular_GetPdnConfig( CellularHandle_t cellularHandle,
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
     char cmdBuf[ CELLULAR_AT_CMD_MAX_SIZE ] = { '\0' };
-    CellularAtReq_t atReqGetPdn =
+    const CellularAtReq_t atReqGetPdn =
     {
         cmdBuf,
         CELLULAR_AT_WITH_PREFIX,
@@ -3546,6 +3561,7 @@ CellularError_t Cellular_GetPdnConfig( CellularHandle_t cellularHandle,
         _Cellular_RecvFuncGetPdnConfig,
         pPdnConfig,
         sizeof( CellularPdnConfig_t ),
+        NULL
     };
 
     if( pPdnConfig == NULL )
@@ -3597,7 +3613,7 @@ CellularError_t Cellular_SetPdnConfig( CellularHandle_t cellularHandle,
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
     char cmdBuf[ CELLULAR_AT_CMD_MAX_SIZE ] = { '\0' };
-    CellularAtReq_t atReqSetPdn =
+    const CellularAtReq_t atReqSetPdn =
     {
         cmdBuf,
         CELLULAR_AT_NO_RESULT,
@@ -3605,6 +3621,7 @@ CellularError_t Cellular_SetPdnConfig( CellularHandle_t cellularHandle,
         NULL,
         NULL,
         0,
+        NULL
     };
 
     if( pPdnConfig == NULL )
@@ -3671,6 +3688,7 @@ CellularError_t Cellular_GetSignalInfo( CellularHandle_t cellularHandle,
         _Cellular_RecvFuncGetQuectelSignalInfo,
         pSignalInfo,
         sizeof( CellularSignalInfo_t ),
+        NULL
     };
 
     cellularStatus = _Cellular_CheckLibraryStatus( pContext );
@@ -3753,7 +3771,7 @@ CellularError_t Cellular_SocketRecv( CellularHandle_t cellularHandle,
         pBuffer,
         NULL
     };
-    CellularAtReq_t atReqSocketRecv =
+    const CellularAtReq_t atReqSocketRecv =
     {
         cmdBuf,
         CELLULAR_AT_MULTI_DATA_WO_PREFIX,
@@ -3761,6 +3779,7 @@ CellularError_t Cellular_SocketRecv( CellularHandle_t cellularHandle,
         _Cellular_RecvFuncData,
         ( void * ) &dataRecv,
         bufferLength,
+        NULL
     };
 
     cellularStatus = _Cellular_CheckLibraryStatus( pContext );
@@ -3982,7 +4001,7 @@ CellularError_t Cellular_GetSocketReceiveStats( CellularHandle_t cellularHandle,
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
     char cmdBuf[ CELLULAR_AT_CMD_TYPICAL_MAX_SIZE ] = { '\0' };
-    CellularAtReq_t atReqSocketRecvStats =
+    const CellularAtReq_t atReqSocketRecvStats =
     {
         cmdBuf,
         CELLULAR_AT_WITH_PREFIX,
@@ -3990,6 +4009,7 @@ CellularError_t Cellular_GetSocketReceiveStats( CellularHandle_t cellularHandle,
         _Cellular_RecvFuncGetSocketReceiveStats,
         ( void * ) receiveStatistics,
         sizeof( CellularSocketReceiveStatistics_t ),
+        NULL
     };
 
     cellularStatus = _Cellular_CheckLibraryStatus( pContext );
@@ -4064,7 +4084,7 @@ CellularError_t Cellular_SocketSend( CellularHandle_t cellularHandle,
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
     uint32_t sendTimeout = DATA_SEND_TIMEOUT_MS;
     char cmdBuf[ CELLULAR_AT_CMD_TYPICAL_MAX_SIZE ] = { '\0' };
-    CellularAtReq_t atReqSocketSend =
+    const CellularAtReq_t atReqSocketSend =
     {
         cmdBuf,
         CELLULAR_AT_NO_RESULT,
@@ -4072,6 +4092,7 @@ CellularError_t Cellular_SocketSend( CellularHandle_t cellularHandle,
         NULL,
         NULL,
         0,
+        NULL
     };
     CellularAtDataReq_t atDataReqSocketSend =
     {
@@ -4144,7 +4165,7 @@ CellularError_t Cellular_SocketSend( CellularHandle_t cellularHandle,
 
         pktStatus = _Cellular_AtcmdDataSend( pContext, atReqSocketSend, atDataReqSocketSend,
                                              socketSendDataPrefix, NULL,
-                                             PACKET_REQ_TIMEOUT_MS, sendTimeout, 0U );
+                                             BG770_PACKET_REQ_TIMEOUT_MS, sendTimeout, 0U );
 
         if( pktStatus != CELLULAR_PKT_STATUS_OK )
         {
@@ -4168,7 +4189,7 @@ CellularError_t Cellular_SocketClose( CellularHandle_t cellularHandle,
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
     char cmdBuf[ CELLULAR_AT_CMD_TYPICAL_MAX_SIZE ] = { '\0' };
-    CellularAtReq_t atReqSockClose =
+    const CellularAtReq_t atReqSockClose =
     {
         cmdBuf,
         CELLULAR_AT_NO_RESULT,
@@ -4176,6 +4197,7 @@ CellularError_t Cellular_SocketClose( CellularHandle_t cellularHandle,
         NULL,
         NULL,
         0,
+        NULL
     };
 
     /* Make sure the library is open. */
@@ -4242,7 +4264,7 @@ CellularError_t Cellular_SocketConnect( CellularHandle_t cellularHandle,
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
     char cmdBuf[ CELLULAR_AT_CMD_MAX_SIZE ] = { '\0' };
-    CellularAtReq_t atReqSocketConnect =
+    const CellularAtReq_t atReqSocketConnect =
     {
         cmdBuf,
         CELLULAR_AT_NO_RESULT,
@@ -4250,6 +4272,7 @@ CellularError_t Cellular_SocketConnect( CellularHandle_t cellularHandle,
         NULL,
         NULL,
         0,
+        NULL
     };
 
     /* Make sure the library is open. */
@@ -4324,7 +4347,7 @@ CellularError_t Cellular_GetPdnStatus( CellularHandle_t cellularHandle,
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
     const CellularPdnStatus_t * pTempPdnStatusBuffer = pPdnStatusBuffers;
     uint8_t numBuffers = 0;
-    CellularAtReq_t atReqGetPdnStatus =
+    const CellularAtReq_t atReqGetPdnStatus =
     {
         "AT+QIACT?",
         CELLULAR_AT_WITH_PREFIX,
@@ -4332,6 +4355,7 @@ CellularError_t Cellular_GetPdnStatus( CellularHandle_t cellularHandle,
         _Cellular_RecvFuncGetPdnStatus,
         pPdnStatusBuffers,
         numStatusBuffers,
+        NULL
     };
 
     if( ( pTempPdnStatusBuffer == NULL ) || ( pNumStatus == NULL ) || ( numStatusBuffers < 1u ) )
@@ -4424,6 +4448,7 @@ CellularError_t Cellular_GetRfFunctionality( CellularHandle_t cellularHandle,
 
                 default:
                     debugASSERT(false);
+                    /* intentional fall through */
                 case BG770_UE_FUNCTIONALITY_LEVEL_UNKNOWN:
                     cellularStatus = CELLULAR_INTERNAL_FAILURE;
                     break;
@@ -4477,7 +4502,7 @@ CellularError_t Cellular_GetSimCardStatus( CellularHandle_t cellularHandle,
     CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
-    CellularAtReq_t atReqGetSimCardStatus =
+    const CellularAtReq_t atReqGetSimCardStatus =
     {
         "AT+QSIMSTAT?",
         CELLULAR_AT_WITH_PREFIX,
@@ -4485,8 +4510,9 @@ CellularError_t Cellular_GetSimCardStatus( CellularHandle_t cellularHandle,
         _Cellular_RecvFuncGetSimCardStatus,
         &pSimCardStatus->simCardState,
         sizeof( CellularSimCardState_t ),
+        NULL
     };
-    CellularAtReq_t atReqGetSimLockStatus =
+    const CellularAtReq_t atReqGetSimLockStatus =
     {
         "AT+CPIN?",
         CELLULAR_AT_WITH_PREFIX,
@@ -4494,6 +4520,7 @@ CellularError_t Cellular_GetSimCardStatus( CellularHandle_t cellularHandle,
         _Cellular_RecvFuncGetSimLockStatus,
         &pSimCardStatus->simCardLockState,
         sizeof( CellularSimCardLockState_t ),
+        NULL
     };
 
     /* pContext is checked in _Cellular_CheckLibraryStatus function. */
@@ -4539,7 +4566,7 @@ CellularError_t Cellular_GetSimCardInfo( CellularHandle_t cellularHandle,
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
 
-    CellularAtReq_t atReqGetIccid =
+    const CellularAtReq_t atReqGetIccid =
     {
         "AT+QCCID",
         CELLULAR_AT_WITH_PREFIX,
@@ -4547,8 +4574,9 @@ CellularError_t Cellular_GetSimCardInfo( CellularHandle_t cellularHandle,
         _Cellular_RecvFuncGetIccid,
         pSimCardInfo->iccid,
         CELLULAR_ICCID_MAX_SIZE + 1U,
+        NULL
     };
-    CellularAtReq_t atReqGetImsi =
+    const CellularAtReq_t atReqGetImsi =
     {
         "AT+CIMI",
         CELLULAR_AT_WO_PREFIX,
@@ -4556,8 +4584,9 @@ CellularError_t Cellular_GetSimCardInfo( CellularHandle_t cellularHandle,
         _Cellular_RecvFuncGetImsi,
         pSimCardInfo->imsi,
         CELLULAR_IMSI_MAX_SIZE + 1U,
+        NULL
     };
-    CellularAtReq_t atReqGetHplmn =
+    const CellularAtReq_t atReqGetHplmn =
     {
         "AT+CRSM=176,28514,0,0,0",
         CELLULAR_AT_WITH_PREFIX,
@@ -4565,6 +4594,7 @@ CellularError_t Cellular_GetSimCardInfo( CellularHandle_t cellularHandle,
         _Cellular_RecvFuncGetHplmn,
         &pSimCardInfo->plmn,
         sizeof( CellularPlmnInfo_t ),
+        NULL
     };
 
     /* pContext is checked in _Cellular_CheckLibraryStatus function. */
@@ -4653,7 +4683,7 @@ CellularError_t Cellular_GetHostByName( CellularHandle_t cellularHandle,
     char cmdBuf[ CELLULAR_AT_CMD_QUERY_DNS_MAX_SIZE ];
     cellularDnsQueryResult_t dnsQueryResult = CELLULAR_DNS_QUERY_UNKNOWN;
     cellularModuleContext_t * pModuleContext = NULL;
-    CellularAtReq_t atReqQueryDns =
+    const CellularAtReq_t atReqQueryDns =
     {
         cmdBuf,
         CELLULAR_AT_NO_RESULT,
@@ -4661,6 +4691,7 @@ CellularError_t Cellular_GetHostByName( CellularHandle_t cellularHandle,
         NULL,
         NULL,
         0,
+        NULL
     };
 
     /* pContext is checked in _Cellular_CheckLibraryStatus function. */
@@ -4924,7 +4955,7 @@ CellularError_t Cellular_UploadFileToModem( CellularHandle_t cellularHandle,
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
     char cmdBuf[ CELLULAR_AT_CMD_MAX_SIZE ] = { '\0' };
     uint32_t sentFileLength = 0;
-    CellularAtReq_t atReqSocketSend =
+    const CellularAtReq_t atReqSocketSend =
     {
         cmdBuf,
         CELLULAR_AT_NO_RESULT,
@@ -4932,6 +4963,7 @@ CellularError_t Cellular_UploadFileToModem( CellularHandle_t cellularHandle,
         NULL,
         NULL,
         0,
+        NULL
     };
     CellularAtDataReq_t atDataReqSocketSend =
     {
@@ -4977,7 +5009,7 @@ CellularError_t Cellular_UploadFileToModem( CellularHandle_t cellularHandle,
 
         pktStatus = _Cellular_AtcmdDataSend( pContext, atReqSocketSend, atDataReqSocketSend,
                                              fileUploadDataPrefix, NULL,
-                                             PACKET_REQ_TIMEOUT_MS, PACKET_REQ_TIMEOUT_MS, 0U );
+                                             BG770_PACKET_REQ_TIMEOUT_MS, BG770_PACKET_REQ_TIMEOUT_MS, 0U );
 
         if( pktStatus != CELLULAR_PKT_STATUS_OK )
         {
@@ -5000,6 +5032,7 @@ CellularError_t Cellular_DeleteFileOnModem( CellularHandle_t cellularHandle,
     CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    CellularAtErrorResponse_t errorResponse = { 0 };
     char cmdBuf[ CELLULAR_AT_CMD_MAX_SIZE ] = { '\0' };
     CellularAtReq_t atReqDeleteFile =
     {
@@ -5009,6 +5042,7 @@ CellularError_t Cellular_DeleteFileOnModem( CellularHandle_t cellularHandle,
         NULL,
         NULL,
         0,
+        &errorResponse,
     };
 
     cellularStatus = _Cellular_CheckLibraryStatus( pContext );
@@ -5031,8 +5065,15 @@ CellularError_t Cellular_DeleteFileOnModem( CellularHandle_t cellularHandle,
         pktStatus = _Cellular_AtcmdRequestWithCallback(pContext, atReqDeleteFile);
 
         if (pktStatus != CELLULAR_PKT_STATUS_OK) {
-            LogError(("Cellular_DeleteFileOnModem: couldn't delete the file, cmdBuf:%s, PktRet: %d", cmdBuf, pktStatus));
-            cellularStatus = _Cellular_TranslatePktStatus(pktStatus);
+            cellularStatus = _translateFileCommandFailure(pktStatus, &errorResponse);
+
+            if (cellularStatus == CELLULAR_FILE_NOT_FOUND) {
+                LogInfo(("Cellular_DeleteFileOnModem: file not found, cmdBuf:%s", cmdBuf));
+            } else if (cellularStatus == CELLULAR_MODEM_ERROR_RESPONSE) {
+                LogError(("Cellular_DeleteFileOnModem: modem error response, cmdBuf:%s, line:%s", cmdBuf, errorResponse.line));
+            } else {
+                LogError(("Cellular_DeleteFileOnModem: couldn't delete the file, cmdBuf:%s, PktRet: %d", cmdBuf, pktStatus));
+            }
         }
     }
 
@@ -5046,6 +5087,7 @@ typedef struct BG770FileCRCs
     uint32_t crc32;
     uint16_t crc16;
     uint16_t crc16_ccitt;
+    bool parsed;    /* a +QFCRC line was parsed; false when the request ended OK without one */
 } BG770FileCRCs_t;
 
 static bool _parseFileCRCs( char * pQfcrcPayload,
@@ -5148,11 +5190,13 @@ static CellularPktStatus_t _Cellular_RecvFileCRCs( CellularContext_t * pContext,
     }
     else if( ( pAtResp == NULL ) || ( pAtResp->pItm == NULL ) || ( pAtResp->pItm->pLine == NULL ) )
     {
+        pFileCRCs->parsed = false;
         LogError( ( "GetSignalInfo: Input Line passed is NULL" ) );
         pktStatus = CELLULAR_PKT_STATUS_FAILURE;
     }
     else
     {
+        pFileCRCs->parsed = false;
         pInputLine = pAtResp->pItm->pLine;
         atCoreStatus = Cellular_ATRemovePrefix( &pInputLine );
 
@@ -5183,9 +5227,98 @@ static CellularPktStatus_t _Cellular_RecvFileCRCs( CellularContext_t * pContext,
             pFileCRCs->crc16_ccitt = 0;
             pktStatus = CELLULAR_PKT_STATUS_FAILURE;
         }
+        else
+        {
+            pFileCRCs->parsed = true;
+        }
     }
 
     return pktStatus;
+}
+
+/* Parses numeric format (AT+CMEE=1) "+CME ERROR: <err>" lines only, verbose format (AT+CMEE=2) is not parsed.
+ * Parsing is bounded to the line buffer, truncated lines and lines not null terminated within the buffer are rejected. */
+static bool _tryParseCmeErrorCode( const CellularAtErrorResponse_t * pErrorResponse,
+                                   uint32_t * pCmeErrorCode )
+{
+    static const char CME_ERROR_PREFIX[] = "+CME ERROR:";
+    static const size_t CME_ERROR_PREFIX_LENGTH = sizeof( CME_ERROR_PREFIX ) - 1U;
+    bool parseStatus = false;
+    const char * pLine = NULL;
+    size_t lineLength = 0;
+
+    if( ( pErrorResponse != NULL ) && ( pCmeErrorCode != NULL ) &&
+        ( pErrorResponse->received == true ) && ( pErrorResponse->truncated == false ) )
+    {
+        pLine = pErrorResponse->line;
+        lineLength = strnlen( pLine, sizeof( pErrorResponse->line ) );
+    }
+
+    if( ( pLine != NULL ) &&
+        ( lineLength < sizeof( pErrorResponse->line ) ) &&
+        ( lineLength > CME_ERROR_PREFIX_LENGTH ) &&
+        ( strncmp( pLine, CME_ERROR_PREFIX, CME_ERROR_PREFIX_LENGTH ) == 0 ) )
+    {
+        size_t i = CME_ERROR_PREFIX_LENGTH;
+        uint32_t cmeErrorCode = 0;
+        bool digitFound = false;
+        bool overflow = false;
+
+        while( ( i < lineLength ) && ( pLine[ i ] == ' ' ) )
+        {
+            i++;
+        }
+
+        while( ( i < lineLength ) && ( isdigit( ( unsigned char ) pLine[ i ] ) != 0 ) )
+        {
+            const uint32_t digit = ( uint32_t ) ( pLine[ i ] - '0' );
+
+            if( cmeErrorCode > ( ( UINT32_MAX - digit ) / 10U ) )
+            {
+                overflow = true;
+                break;
+            }
+
+            cmeErrorCode = ( cmeErrorCode * 10U ) + digit;
+            digitFound = true;
+            i++;
+        }
+
+        /* The remainder of the line must be entirely the numeric error code. */
+        if( ( digitFound == true ) && ( overflow == false ) && ( i == lineLength ) )
+        {
+            *pCmeErrorCode = cmeErrorCode;
+            parseStatus = true;
+        }
+    }
+
+    return parseStatus;
+}
+
+/* Classifies a failed file command request: file not found for +CME ERROR: 405, a modem error response for any other
+ * error final result the modem answered with, otherwise the library's translation of the packet status (e.g. timeout,
+ * command not sent, unusable response), in which case nothing is known about the file. */
+static CellularError_t _translateFileCommandFailure( CellularPktStatus_t pktStatus,
+                                                     const CellularAtErrorResponse_t * pErrorResponse )
+{
+    CellularError_t cellularStatus = CELLULAR_INTERNAL_FAILURE;
+    uint32_t cmeErrorCode = 0;
+
+    if( ( _tryParseCmeErrorCode( pErrorResponse, &cmeErrorCode ) == true ) &&
+        ( cmeErrorCode == BG770_CME_ERROR_FILE_NOT_FOUND ) )
+    {
+        cellularStatus = CELLULAR_FILE_NOT_FOUND;
+    }
+    else if( ( pErrorResponse != NULL ) && ( pErrorResponse->received == true ) )
+    {
+        cellularStatus = CELLULAR_MODEM_ERROR_RESPONSE;
+    }
+    else
+    {
+        cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
+    }
+
+    return cellularStatus;
 }
 
 CellularError_t Cellular_GetModemFileCRC32( CellularHandle_t cellularHandle,
@@ -5196,6 +5329,7 @@ CellularError_t Cellular_GetModemFileCRC32( CellularHandle_t cellularHandle,
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
     BG770FileCRCs_t fileCRCs = { 0 };
+    CellularAtErrorResponse_t errorResponse = { 0 };
     char cmdBuf[ CELLULAR_AT_CMD_MAX_SIZE ] = { '\0' };
     CellularAtReq_t atReqGetFileCRCs =
     {
@@ -5205,6 +5339,7 @@ CellularError_t Cellular_GetModemFileCRC32( CellularHandle_t cellularHandle,
         _Cellular_RecvFileCRCs,
         &fileCRCs,
         sizeof(BG770FileCRCs_t),
+        &errorResponse,
     };
 
     cellularStatus = _Cellular_CheckLibraryStatus( pContext );
@@ -5227,12 +5362,33 @@ CellularError_t Cellular_GetModemFileCRC32( CellularHandle_t cellularHandle,
         ( void ) snprintf( cmdBuf, CELLULAR_AT_CMD_MAX_SIZE, "%s\"%s\"", "AT+QFCRC=", pcFilename );
         pktStatus = _Cellular_AtcmdRequestWithCallback( pContext, atReqGetFileCRCs );
 
+        if( ( pktStatus == CELLULAR_PKT_STATUS_OK ) && ( fileCRCs.parsed == false ) )
+        {
+            /* The modem's answer to AT+QFCRC always carries a +QFCRC line, so an OK without one wasn't this
+             * request's answer (see the late line comment in _Cellular_ProcessLine()). Don't report a CRC32 of 0
+             * as the file's CRC32. */
+            LogError( ( "Cellular_GetModemFileCRC32: OK without a +QFCRC line, cmdBuf:%s", cmdBuf ) );
+            pktStatus = CELLULAR_PKT_STATUS_BAD_RESPONSE;
+        }
+
         *crc32 = fileCRCs.crc32;
 
         if( pktStatus != CELLULAR_PKT_STATUS_OK )
         {
-            LogError( ( "Cellular_GetModemFileCRC32: couldn't get the file CRC32, cmdBuf:%s, PktRet: %d", cmdBuf, pktStatus ) );
-            cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
+            cellularStatus = _translateFileCommandFailure( pktStatus, &errorResponse );
+
+            if( cellularStatus == CELLULAR_FILE_NOT_FOUND )
+            {
+                LogWarn( ( "Cellular_GetModemFileCRC32: file not found, cmdBuf:%s", cmdBuf ) );
+            }
+            else if( cellularStatus == CELLULAR_MODEM_ERROR_RESPONSE )
+            {
+                LogError( ( "Cellular_GetModemFileCRC32: modem error response, cmdBuf:%s, line:%s", cmdBuf, errorResponse.line ) );
+            }
+            else
+            {
+                LogError( ( "Cellular_GetModemFileCRC32: couldn't get the file CRC32, cmdBuf:%s, PktRet: %d", cmdBuf, pktStatus ) );
+            }
         }
     }
 
@@ -6049,7 +6205,7 @@ static CellularError_t _Cellular_SocketSetSSLOpt( CellularContext_t * pContext,
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
     char cmdBuf[ CELLULAR_AT_CMD_MAX_SIZE ] = { '\0' };
-    CellularAtReq_t atReqSSLOpt =
+    const CellularAtReq_t atReqSSLOpt =
     {
         cmdBuf,
         CELLULAR_AT_NO_RESULT,
@@ -6057,6 +6213,7 @@ static CellularError_t _Cellular_SocketSetSSLOpt( CellularContext_t * pContext,
         NULL,
         NULL,
         0,
+        NULL
     };
 
     SSLConfigDescription_t sslConfigDescription = { 0 };
@@ -6192,7 +6349,7 @@ CellularError_t Cellular_GetSocketLastResultCode( CellularHandle_t cellularHandl
     CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
-    CellularAtReq_t atReqGetLastResultCode =
+    const CellularAtReq_t atReqGetLastResultCode =
     {
         "AT+QIGETERROR",
         CELLULAR_AT_WITH_PREFIX,
@@ -6200,6 +6357,7 @@ CellularError_t Cellular_GetSocketLastResultCode( CellularHandle_t cellularHandl
         _Cellular_RecvFuncGetSocketLastResultCode,
         lastResultCode,
         sizeof( *lastResultCode ),
+        NULL
     };
 
     cellularStatus = _Cellular_CheckLibraryStatus( pContext );
@@ -6341,14 +6499,15 @@ CellularError_t Cellular_GetModuleFlowControlSetting( CellularHandle_t cellularH
     CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
-    CellularAtReq_t atReqGetFlowControl =
+    const CellularAtReq_t atReqGetFlowControl =
     {
         "AT+IFC?",
         CELLULAR_AT_WITH_PREFIX,
         "+IFC",
         _Cellular_RecvFuncGetFlowControlSetting,
         flowControl,
-        sizeof( *flowControl )
+        sizeof( *flowControl ),
+        NULL
     };
 
     cellularStatus = _Cellular_CheckLibraryStatus( pContext );
@@ -6521,7 +6680,7 @@ CellularError_t Cellular_GetModuleBaudRateSetting( CellularHandle_t cellularHand
     CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
-    CellularAtReq_t atReqGetBaudRate =
+    const CellularAtReq_t atReqGetBaudRate =
     {
         "AT+IPR?",
         CELLULAR_AT_WITH_PREFIX,
@@ -6529,6 +6688,7 @@ CellularError_t Cellular_GetModuleBaudRateSetting( CellularHandle_t cellularHand
         _Cellular_RecvFuncGetBaudRateSetting,
         baudRate,
         sizeof( *baudRate ),
+        NULL
     };
 
     cellularStatus = _Cellular_CheckLibraryStatus( pContext );
@@ -6989,7 +7149,7 @@ CellularError_t Cellular_GetServiceSelection( CellularHandle_t cellularHandle,
     CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
-    CellularAtReq_t atReqGetServiceSelection =
+    const CellularAtReq_t atReqGetServiceSelection =
     {
         "AT+COPS?",
         CELLULAR_AT_WITH_PREFIX,
@@ -6997,6 +7157,7 @@ CellularError_t Cellular_GetServiceSelection( CellularHandle_t cellularHandle,
         _Cellular_RecvFuncGetServiceSelection,
         pServiceSelection,
         sizeof( CellularServiceSelection_t ),
+        NULL
     };
 
     cellularStatus = _Cellular_CheckLibraryStatus( pContext );
@@ -7412,7 +7573,7 @@ CellularError_t Cellular_GetLTEFrequencyBands( CellularHandle_t cellularHandle,
     CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
-    CellularAtReq_t atReqGetFrequencyBands =
+    const CellularAtReq_t atReqGetFrequencyBands =
     {
         "AT+QCFG=\"band\"",
         CELLULAR_AT_WITH_PREFIX,
@@ -7420,6 +7581,7 @@ CellularError_t Cellular_GetLTEFrequencyBands( CellularHandle_t cellularHandle,
         _RecvFuncGetFrequencyBands,
         pFrequencyBands,
         sizeof( CellularLTEBandMask_t ),
+        NULL
     };
 
     if( pFrequencyBands == NULL )
@@ -7837,7 +7999,7 @@ CellularError_t Cellular_GetNetworkOperatorMode( CellularHandle_t cellularHandle
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
 
-    CellularAtReq_t atReqGetNetworkOperatorMode =
+    const CellularAtReq_t atReqGetNetworkOperatorMode =
     {
         "AT+QCFG=\"nwoper\"",
         CELLULAR_AT_WITH_PREFIX,
@@ -7845,6 +8007,7 @@ CellularError_t Cellular_GetNetworkOperatorMode( CellularHandle_t cellularHandle
         _Cellular_RecvFuncGetNetworkOperatorMode,
         pNetworkOperatorModeConfig,
         sizeof( CellularNetworkOperatorModeConfig_t ),
+        NULL
     };
 
     cellularStatus = _Cellular_CheckLibraryStatus( pContext );
@@ -8125,7 +8288,7 @@ CellularError_t Cellular_GetModemTemperatures( CellularHandle_t cellularHandle,
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
 
-    CellularAtReq_t atReqGetTemperatures =
+    const CellularAtReq_t atReqGetTemperatures =
     {
         "AT+QTEMP",
         CELLULAR_AT_WITH_PREFIX,
@@ -8133,6 +8296,7 @@ CellularError_t Cellular_GetModemTemperatures( CellularHandle_t cellularHandle,
         _Cellular_RecvFuncGetTemperatures,
         pTemperatures,
         sizeof( CellularTemperatures_t ),
+        NULL
     };
 
     cellularStatus = _Cellular_CheckLibraryStatus( pContext );
@@ -8617,7 +8781,7 @@ CellularError_t Cellular_GetLTENetworkInfo( CellularHandle_t cellularHandle,
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
 
-    CellularAtReq_t atReqGetNetworkInfo =
+    const CellularAtReq_t atReqGetNetworkInfo =
     {
         "AT+QNWINFO",
         CELLULAR_AT_WITH_PREFIX,
@@ -8625,9 +8789,10 @@ CellularError_t Cellular_GetLTENetworkInfo( CellularHandle_t cellularHandle,
         _Cellular_RecvFuncGetNetworkInfo,
         pLTENetworkInfo,
         sizeof( CellularLTENetworkInfo_t ),
+        NULL
     };
 
-    CellularAtReq_t atReqGetNetworkRegistrationStatus =
+    const CellularAtReq_t atReqGetNetworkRegistrationStatus =
     {
             "AT+CEREG?",
             CELLULAR_AT_WITH_PREFIX,
@@ -8635,6 +8800,7 @@ CellularError_t Cellular_GetLTENetworkInfo( CellularHandle_t cellularHandle,
             _Cellular_RecvFuncGetNetworkPsRegStatus,
             pLTENetworkInfo,
             sizeof( CellularLTENetworkInfo_t ),
+            NULL
     };
 
     cellularStatus = _Cellular_CheckLibraryStatus( pContext );
@@ -8824,6 +8990,7 @@ CellularError_t Cellular_GetBandScanPriorityList( CellularHandle_t cellularHandl
         _Cellular_RecvFuncGetBandScanPriorityList,
         pBandScanPriorityList,
         sizeof( CellularBandScanPriorityList_t ),
+        NULL
     };
 
     cellularStatus = _Cellular_CheckLibraryStatus( pContext );
@@ -8910,7 +9077,7 @@ CellularError_t Cellular_SetBandScanPriorityList( CellularHandle_t cellularHandl
     char cmdBuf[ CELLULAR_AT_CMD_MAX_SIZE ] = { '\0' };
     size_t currentStringLength = 0;
     CellularError_t buildResult = CELLULAR_INTERNAL_FAILURE;
-    CellularAtReq_t atReqSetBandScanPriorityList =
+    const CellularAtReq_t atReqSetBandScanPriorityList =
     {
         cmdBuf,
         CELLULAR_AT_NO_RESULT,
@@ -8918,6 +9085,7 @@ CellularError_t Cellular_SetBandScanPriorityList( CellularHandle_t cellularHandl
         NULL,
         NULL,
         0,
+        NULL
     };
 
     cellularStatus = _Cellular_CheckLibraryStatus( pContext );

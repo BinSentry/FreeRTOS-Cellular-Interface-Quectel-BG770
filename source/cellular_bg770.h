@@ -50,7 +50,9 @@
 /* AT Command timeout for SSL Socket connection */
 #define SSL_SOCKET_CONNECT_PACKET_REQ_TIMEOUT_MS   ( SOCKET_CONNECT_PACKET_REQ_TIMEOUT_MS + SSL_NEGOTIATION_MAX_TIMEOUT_MS )
 
-#define PACKET_REQ_TIMEOUT_MS                      ( 5000UL )
+/* AT Command timeout for the data phase of socket send and file upload, distinct from the library's internal
+ * PACKET_REQ_TIMEOUT_MS (CELLULAR_COMMON_AT_COMMAND_TIMEOUT_MS) */
+#define BG770_PACKET_REQ_TIMEOUT_MS                ( 5000UL )
 
 /* AT Command timeout for Socket disconnection */
 #define SOCKET_DISCONNECT_PACKET_REQ_TIMEOUT_MS    ( 12000UL )
@@ -64,6 +66,9 @@
 #define PSM_VERSION_BIT_MASK               ( 0b00001111u )
 
 #define ENABLE_MODULE_UE_RETRY_TIMEOUT_MS   ( 18000U )   /* observed at least 17113 ms */
+
+/* +CME ERROR codes for file AT commands (Quectel BG77xA-GL&BG95xA-GL FILE Application Note V1.3) */
+#define BG770_CME_ERROR_FILE_NOT_FOUND     ( 405UL )
 
 #include <cellular_types.h>
 #include "cellular_platform.h"
